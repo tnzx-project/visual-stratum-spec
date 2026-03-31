@@ -1,17 +1,17 @@
 # Visual Stratum Protocol Specification
 
-    draft-tnzx-visual-stratum-00
+    draft-tnzx-visual-stratum-01
 
 ## Status of This Document
 
-This document is a **draft specification (draft-00)** of the Visual Stratum protocol suite. It is a work in progress published to enable independent review, feedback, and interoperable implementation.
+This document is a **draft specification (draft-01)** of the Visual Stratum protocol suite. It is a work in progress published to enable independent review, feedback, and interoperable implementation.
 
 This specification has not been submitted to or reviewed by the IETF or any standards body. The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119 [RFC2119].
 
     Authors:       TNZX Project
     Contact:       tnzx@proton.me
     Date:          March 2026
-    Version:       draft-00
+    Version:       draft-01
     License:       LGPL-2.1-only (protocol suite)
     Repository:    https://github.com/tnzx-project/tnzx-protocol
 
@@ -26,16 +26,33 @@ This specification defines the wire format, encoding profiles, cryptographic des
 ## Table of Contents
 
 - 1\. Introduction
+  - 1.1 Purpose
+  - 1.2 Scope
+  - 1.3 Conventions and Terminology
+  - 1.4 Related Work and Novelty
 - 2\. Protocol Overview
 - 3\. Encoding Profiles
 - 4\. Frame Format
+  - 4.1 Frame Header
+  - 4.2 Message Types
+  - 4.3 Fragmentation
+  - 4.4 Share-to-Frame Byte Stream Assembly
+  - 4.5 Frame Reassembly
+  - 4.6 Implementation Limits
+  - 4.7 Error Handling
 - 5\. Mining Gate
 - 6\. Ghost Share Detection
 - 7\. Proxy Architecture
 - 8\. Cryptographic Design
+  - 8.6 Key Distribution
+  - 8.7 Maximum Encrypted Plaintext
 - 9\. Chain Adaptation
+  - 9.4 Nonce Byte Order
+  - 9.5 Stratum v2 Compatibility
 - 10\. Multi-Channel Transport (VS3)
 - 11\. Security Considerations
+  - 11.1 Threat Model (incl. 11.1.5 Traffic Analysis)
+  - 11.4 Ethical Considerations and Dual Use
 - 12\. Test Vectors
 - 13\. References
 - Appendix A -- Protocol Constants
@@ -89,6 +106,16 @@ All multi-byte integer values in the frame format are encoded **big-endian** (ne
 Hexadecimal values are prefixed with `0x` for single values and presented as lowercase hex strings for sequences (e.g., `"aa48656c"`).
 
 Byte offsets are 0-indexed.
+
+### 1.4 Related Work and Novelty
+
+Visual Stratum relates to three areas of prior work:
+
+**Censorship-resistant transports.** Tor pluggable transports (obfs4 [PT1], meek [PT2]) disguise Tor traffic as other protocols. StegoTorus [StegoTorus] embeds Tor in HTTP responses. DeltaShaper [DeltaShaper] uses video steganography. These systems synthesize cover traffic that mimics a legitimate protocol. Visual Stratum differs fundamentally: it does not mimic mining traffic -- it IS mining traffic. The shares carrying data pass full proof-of-work validation and earn real cryptocurrency. There is no behavioral difference to detect because the cover activity has independent economic value.
+
+**Blockchain covert channels.** Partala (2018) [Partala2018] demonstrated covert payloads in Bitcoin transaction fields. Frkat, Annessi, and Zseby (2020) [Frkat2020] quantified embedding capacity across blockchain fields. Cao et al. (2023) [Cao2023] surveyed blockchain information hiding techniques and identified mining-protocol-level embedding as under-explored. Visual Stratum operates at the mining protocol layer (Stratum), not the transaction layer. This means: no on-chain fees, no permanent records, no confirmation delays, and bandwidth limited by share rate (seconds) rather than block rate (minutes).
+
+**Access control for covert channels.** Mining Gate (Section 5) binds communication bandwidth to active proof-of-work. This combines anti-spam, Sybil resistance, and economic sustainability in a single mechanism. To our knowledge, using proof-of-work as an access control gate for a steganographic channel has not been proposed in prior work. Hopper et al. [HOP02] formalized provably secure steganography but did not address access control for the covert channel itself.
 
 ---
 
@@ -422,35 +449,41 @@ Standard Bitcoin miners always include `extranonce2` in `mining.submit`. The `ex
 
 These profiles trade stealth for throughput. They are OPTIONAL extensions.
 
-#### 3.5.1 V3-BURST (VERSION 0x04)
+#### 3.5.1 V3-BURST (Profile ID 0x04)
 
+    Profile ID:     0x04 (capability negotiation only)
+    Frame VERSION:  0x03 (VS3)
     Bytes/share:    ~200
     Carrier:        extranonce2 full field (base64 encoded)
     Stealth:        High
     Chain:          Any with extranonce2
     Status:         Specified, not yet implemented
 
-Uses the full extranonce2 field to carry base64-encoded payload data. The extranonce2 values will deviate strongly from normal sequential patterns.
+Uses the full extranonce2 field to carry base64-encoded payload data. The extranonce2 values will deviate strongly from normal sequential patterns. The frame header uses VERSION = `0x03` (VS3); the Profile ID `0x04` is used only during capability negotiation to indicate BURST support.
 
-#### 3.5.2 V3-GHOST (VERSION 0x05)
+#### 3.5.2 V3-GHOST (Profile ID 0x05)
 
+    Profile ID:     0x05 (capability negotiation only)
+    Frame VERSION:  0x03 (VS3)
     Bytes/share:    ~200
     Carrier:        difficulty-1 cover shares
     Stealth:        Medium
     Chain:          Any
     Status:         Specified, not yet implemented
 
-Uses difficulty-1 cover shares (trivially computed) to carry large payloads. The share rate spike from difficulty-1 submissions is detectable under traffic analysis.
+Uses difficulty-1 cover shares (trivially computed) to carry large payloads. The share rate spike from difficulty-1 submissions is detectable under traffic analysis. The frame header uses VERSION = `0x03` (VS3); the Profile ID `0x05` is used only during capability negotiation.
 
-#### 3.5.3 V3-TURBO (VERSION 0x06)
+#### 3.5.3 V3-TURBO (Profile ID 0x06)
 
+    Profile ID:     0x06 (capability negotiation only)
+    Frame VERSION:  0x03 (VS3)
     Bytes/share:    ~256
     Carrier:        Worker password field
     Stealth:        Lower
     Chain:          Any
     Status:         Specified, not yet implemented
 
-Uses the `pass` field in the Stratum `mining.authorize` message to carry payload. TURBO requires a reconnect per message, producing reconnect patterns detectable under DPI. Intended for burst transfers where reconnect frequency is already high.
+Uses the `pass` field in the Stratum `mining.authorize` message to carry payload. TURBO requires a reconnect per message, producing reconnect patterns detectable under DPI. Intended for burst transfers where reconnect frequency is already high. The frame header uses VERSION = `0x03` (VS3); the Profile ID `0x06` is used only during capability negotiation.
 
 ### 3.6 Profile Selection
 
@@ -477,7 +510,7 @@ Profile Selection Algorithm:
            profile = V1 (1 B/share)
 ```
 
-The `VERSION` byte in the frame header (Section 4.1) indicates the encoding profile used. The receiver MUST use the correct extraction method for the indicated version.
+The `VERSION` byte in the frame header (Section 4.1) indicates the protocol generation (VS1=0x01, VS2=0x02, VS3=0x03). The encoding profile is determined at the share-classification layer (Section 6.1), not from the frame header. The receiver MUST use the correct extraction method for the detected encoding profile.
 
 ### 3.7 Profile Summary Table
 
@@ -487,9 +520,9 @@ The `VERSION` byte in the frame header (Section 4.1) indicates the encoding prof
 | V2 | `0x02` | Bitcoin-style | nonce LSB + extranonce2 (2B) | 3 | High | Reference impl |
 | V3-Monero | `0x03` | Monero | nonce ghost (3B) + ntime ext (2B) | 5 | Maximum/sentinel | Reference impl |
 | V3-Generic | `0x03` | Bitcoin-style | nonce (1B) + extranonce2 (4B) + ntime (2B) | 7 | Maximum | Specified |
-| BURST | `0x04` | Any | extranonce2 full (base64) | ~200 | High | Specified |
-| GHOST | `0x05` | Any | difficulty-1 cover shares | ~200 | Medium | Specified |
-| TURBO | `0x06` | Any | worker password field | ~256 | Lower | Specified |
+| BURST | `0x03` (Profile ID `0x04`) | Any | extranonce2 full (base64) | ~200 | High | Specified |
+| GHOST | `0x03` (Profile ID `0x05`) | Any | difficulty-1 cover shares | ~200 | Medium | Specified |
+| TURBO | `0x03` (Profile ID `0x06`) | Any | worker password field | ~256 | Lower | Specified |
 
 **VERSION byte semantics:** The VERSION byte in the frame header (Section 4.1) identifies the **protocol generation** (VS1=0x01, VS2=0x02, VS3=0x03), NOT the encoding profile. A VS3 frame header is identical regardless of whether the frame was transported via VS3-Monero or VS3-Generic ghost shares. The encoding profile is determined at the share-classification layer (Section 6.1), not at the frame layer. A receiver that processes pre-assembled frames (e.g., via WebSocket relay) does not need to know the original encoding profile.
 
@@ -524,7 +557,7 @@ Field descriptions:
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
 | 0 | 1 | MAGIC | Frame boundary marker. MUST be `0xAA`. |
-| 1 | 1 | VERSION | Protocol version. `0x01` = VS1, `0x02` = VS2, `0x03` = VS3, `0x04` = BURST, `0x05` = GHOST, `0x06` = TURBO. |
+| 1 | 1 | VERSION | Protocol version. `0x01` = VS1, `0x02` = VS2, `0x03` = VS3. |
 | 2 | 1 | TYPE | Message type (see Section 4.2). |
 | 3-4 | 2 | MESSAGE_ID | 16-bit message identifier, big-endian. Links all fragments of one logical message. |
 | 5 | 1 | FRAG_INDEX | 0-based index of this fragment within the message. |
@@ -533,6 +566,12 @@ Field descriptions:
 | 8..8+N | N | PAYLOAD | Fragment content. N = PAYLOAD_LEN. |
 
 The total frame size is `8 + PAYLOAD_LEN` bytes, with a maximum of `8 + 128 = 136` bytes.
+
+> **Note:** The VERSION byte identifies the protocol generation, not the
+> encoding profile. BURST (`0x04`), GHOST (`0x05`), and TURBO (`0x06`)
+> are higher-bandwidth transport profiles that use the same VS3 frame
+> format (VERSION = `0x03`). The profile IDs listed in Section 3.5 are
+> used for capability negotiation, not in the frame header.
 
 #### 4.1.1 MAGIC Byte Dual Use
 
@@ -567,6 +606,24 @@ Implementations MUST NOT generate message ID `0xFFFF`, which is reserved for dum
 | `0x06` | HASHCASH | Mining Gate proof-of-work token |
 
 Implementations MUST ignore frames with unknown message types and MUST NOT treat them as errors. This allows future extension.
+
+#### 4.2.1 Payload Formats
+
+**TEXT (0x01):** UTF-8 encoded text. Maximum PAYLOAD_LEN bytes per fragment.
+
+**ACK (0x02):** Acknowledgment. Payload is the 2-byte MESSAGE_ID (big-endian) of the message being acknowledged. Total payload: 2 bytes.
+
+**PING (0x03):** Keepalive. Payload MUST be empty (0 bytes). The receiver SHOULD respond with an ACK referencing the PING's MESSAGE_ID.
+
+**KEY_EXCHANGE (0x04):** Payload is a 32-byte X25519 public key (raw bytes, not hex-encoded). See Section 8.1 for the key exchange protocol.
+
+**ENCRYPTED (0x05):** Payload is an AES-256-GCM ciphertext envelope as defined in Section 8.2. The envelope format is:
+
+```
+nonce(16) || salt(32) || iv(12) || ciphertext || tag(16)
+```
+
+**HASHCASH (0x06):** Reserved for future use. Implementations MUST NOT generate frames with this type. Receivers MUST silently discard them.
 
 ### 4.3 Fragmentation
 
@@ -615,11 +672,62 @@ Example for a maximum-size frame (136 bytes) across profiles:
 | V3-Monero | 5 | 28 |
 | V3-Generic | 7 | 20 |
 
-### 4.4 Frame Reassembly
+### 4.4 Share-to-Frame Byte Stream Assembly
+
+This section defines how bytes extracted from consecutive Stratum shares are assembled into parseable VS3 frames. This is the bridge between the encoding layer (Section 3) and the frame layer (Section 4.1).
+
+#### 4.4.1 Byte Stream Model
+
+The receiver maintains a per-connection byte buffer. Each incoming share yields BYTES_PER_SHARE bytes (profile-dependent: 1 for V1, 3 for V2, 5 for V3-Monero, 7 for V3-Generic). These bytes are appended to the buffer in share-arrival order. TCP guarantees in-order delivery within a single Stratum connection.
+
+Implementations MUST maintain separate buffers for each encoding channel (V1, V2, V3) on the same connection.
+
+#### 4.4.2 Last-Chunk Padding
+
+When a frame's total byte length is not evenly divisible by BYTES_PER_SHARE, the sender MUST zero-pad the final share's payload slots to fill BYTES_PER_SHARE bytes. The receiver uses the PAYLOAD_LEN field (frame header byte 7) to determine the exact payload boundary and MUST discard trailing bytes beyond header + PAYLOAD_LEN.
+
+Example: A 13-byte frame sent via V3-Monero (5 B/share):
+
+```
+Share 1: bytes [0..4]   -> frame[0..4]
+Share 2: bytes [5..9]   -> frame[5..9]
+Share 3: bytes [10..12] -> frame[10..12] + 2 zero-pad bytes (discarded)
+```
+
+#### 4.4.3 Frame Boundary Detection
+
+The receiver scans the byte buffer for frame boundaries using the following algorithm:
+
+1. Find the first byte equal to MAGIC (0xAA).
+2. If fewer than HEADER_SIZE (8) bytes remain after this position, wait for more data.
+3. Read candidate header: version (byte 1), type (byte 2).
+4. Validate: version MUST be a known VERSION value (0x01-0x03) AND type MUST be a known MSG_TYPE value (0x01-0x06). If validation fails, advance one byte past the candidate MAGIC and repeat from step 1.
+5. Read PAYLOAD_LEN (byte 7). Compute frame_size = HEADER_SIZE + PAYLOAD_LEN. If frame_size > HEADER_SIZE + 255, discard and advance (malformed).
+6. If fewer than frame_size bytes are available, wait for more data.
+7. Consume frame_size bytes from the buffer. This is one complete frame.
+8. Repeat from step 1 for remaining buffer data.
+
+#### 4.4.4 Resynchronization After Data Loss
+
+If a share is lost or corrupted (e.g., network error, pool drops the submit), the byte stream shifts by BYTES_PER_SHARE, permanently misaligning subsequent frame boundaries. The receiver MUST handle this gracefully:
+
+- The scanning algorithm (4.4.3) naturally recovers by advancing past invalid MAGIC candidates until a valid frame header is found.
+- Partial frames whose MESSAGE_TIMEOUT_MS expires are discarded (Section 4.6).
+- The AES-GCM authentication tag (Section 8.2) detects corrupted messages at the application layer after reassembly.
+
+Implementations SHOULD track frame parse failures and emit a diagnostic event after 3 consecutive failed parse attempts, indicating possible stream desynchronization.
+
+#### 4.4.5 Demultiplexing
+
+Bytes are demultiplexed by Stratum TCP connection. Each miner connection has independent byte buffers, fragment reassembly state, and Mining Gate state. A miner's wallet address (from the Stratum login) serves as the logical sender identifier.
+
+A single connection MUST NOT interleave chunks from multiple frames on the same encoding channel. The sender MUST complete transmission of one frame before starting the next on the same channel. Different channels (V1, V3) on the same connection MAY carry independent frame streams concurrently.
+
+### 4.5 Frame Reassembly
 
 The receiver maintains a pending message table keyed by MESSAGE_ID.
 
-#### 4.4.1 State per Pending Message
+#### 4.5.1 State per Pending Message
 
 ```
 pending[msgId] = {
@@ -632,7 +740,7 @@ pending[msgId] = {
 }
 ```
 
-#### 4.4.2 Processing Algorithm
+#### 4.5.2 Processing Algorithm
 
 For each received frame:
 
@@ -643,11 +751,11 @@ For each received frame:
 
 Frames that fail validation in step 1 MUST be silently discarded. A frame with `frame[0] != 0xAA` indicates a normal (non-VS) share and MUST be flagged as `isNormalShare` for the caller.
 
-#### 4.4.3 Out-of-Order Delivery
+#### 4.5.3 Out-of-Order Delivery
 
 Fragments MAY arrive in any order. The reassembly buffer is indexed by FRAG_INDEX, enabling correct reconstruction regardless of arrival order.
 
-### 4.5 Implementation Limits
+### 4.6 Implementation Limits
 
 Implementations MUST enforce the following limits to prevent denial-of-service:
 
@@ -661,9 +769,9 @@ Implementations MUST enforce the following limits to prevent denial-of-service:
 
 Implementations MAY adjust these values based on deployment constraints but SHOULD NOT remove them entirely. Removing reassembly limits creates a denial-of-service vector where an attacker sends unbounded incomplete fragments to exhaust receiver memory.
 
-### 4.6 Error Handling
+### 4.7 Error Handling
 
-#### 4.6.1 Eviction Strategies
+#### 4.7.1 Eviction Strategies
 
 Implementations MUST apply two independent eviction strategies:
 
@@ -678,7 +786,7 @@ Memory bound = O(MAX_PENDING_MESSAGES * MAX_FRAGMENT_SIZE * MAX_TOTAL_FRAGMENTS)
              = O(1000 * 128 * 50) = O(6.4 MB)
 ```
 
-#### 4.6.2 Error Conditions
+#### 4.7.2 Error Conditions
 
 | Condition | Action |
 |-----------|--------|
@@ -1139,6 +1247,16 @@ function checkNonce(nonce):
 
 Implementations MUST reject messages with duplicate nonces within the TTL window. One-shot decryption MUST maintain its own separate nonce tracker (module-level singleton).
 
+### 8.6 Key Distribution
+
+Key distribution -- how Alice discovers Bob's public key -- is outside the scope of this specification. For one-to-one communication, users exchange X25519 public keys through an out-of-band channel (QR code, secure messenger, in-person exchange).
+
+The Falo anonymous coordination protocol (specified in a separate document) addresses group key management using MLS (RFC 9420) over VS3 transport.
+
+### 8.7 Maximum Encrypted Plaintext
+
+**Maximum encrypted plaintext.** With session encryption overhead of 76 bytes (nonce 16 + salt 32 + IV 12 + tag 16) and a maximum message size of 6,400 bytes (Section 4.6), the maximum plaintext that can be encrypted and transmitted in a single VS3 message is 6,400 - 76 = **6,324 bytes**.
+
 ---
 
 ## 9. Chain Adaptation
@@ -1229,6 +1347,14 @@ A VS-aware pool or proxy can detect the Stratum variant from the login/subscribe
 | `method: "login"` with `params.login` | Monero Stratum |
 | `method: "mining.subscribe"` | Bitcoin-style Stratum |
 | `extranonce2_size` in subscribe response | Bitcoin-style (size determines V2/V3-Generic capacity) |
+
+### 9.4 Nonce Byte Order
+
+**Nonce byte order.** The nonce hex string in Stratum JSON is interpreted as a direct byte sequence: the first two hex characters represent byte[0], the next two represent byte[1], and so on. For example, `"aa48656c"` represents bytes [0xAA, 0x48, 0x65, 0x6C]. This is NOT little-endian integer encoding.
+
+### 9.5 Stratum v2 Compatibility
+
+**Stratum v2 (Sv2) compatibility.** Stratum v2 encrypts the connection using the Noise protocol framework. VS embedding within Sv2 would require steganography inside an encrypted channel, which changes the threat model and is not addressed by this specification. This specification targets Stratum v1 exclusively.
 
 ---
 
@@ -1402,6 +1528,20 @@ Visual Stratum considers four adversary classes:
 | **Malicious pool operator** | Has access to all share submissions and server-side state. Can selectively drop shares. Cannot decrypt E2E-encrypted payloads. |
 | **Compromised endpoint** | Has access to one party's device (keys, plaintext). Bypasses all network-level protections. |
 
+#### 11.1.5 Traffic Analysis
+
+Traffic analysis is the most likely real-world attack against Visual Stratum and deserves specific attention.
+
+**Correlated timing.** If Alice sends a message and Bob's miner submits a ghost share shortly after, an observer monitoring both connections can infer communication. Mitigation: the BALANCED mode's timing decorrelation (Section 10.3) introduces random delays. On L1 (Stratum only), no timing mitigation is currently specified.
+
+**Share rate anomaly.** Ghost shares increase a miner's total submission rate. A miner submitting significantly more shares than their hashrate predicts is a statistical signal. Mitigation: ghost shares at difficulty 1 represent negligible computational cost but are countable. Implementations SHOULD limit ghost share rate to a fraction of real share rate.
+
+**Communication graph.** The pool operator (or proxy operator) learns who communicates with whom, when, and how much -- but not what. This is analogous to Signal's server trust model. The pool sees the communication graph but not the content.
+
+**Intersection attacks.** If only a small number of miners on a pool use VS-enhanced software, the anonymity set is correspondingly small. The tnzxminer user-agent string in the Stratum login identifies VS users. Implementations SHOULD mimic standard miner user-agent strings (e.g., "XMRig/6.21.0") to avoid this fingerprint. The proxy (Section 7.2) already sanitizes the user-agent before forwarding upstream.
+
+**Sequential correlation.** VS3 frame headers contain structured bytes (MAGIC=0xAA, VERSION=0x03) that recur at predictable intervals in the byte stream. While individual encrypted payload bytes are uniformly distributed, the frame structure across multiple shares creates a second-order pattern. Mitigation: encrypt the entire frame (including header) before embedding; the current specification encrypts only the payload (MSG_TYPE ENCRYPTED, 0x05), leaving the header in cleartext. Future revisions SHOULD consider full-frame encryption.
+
 ### 11.2 Undetectability Analysis
 
 The undetectability of the Stratum embedding is analyzed per field:
@@ -1471,6 +1611,18 @@ Design targets:
 6. **No quantum resistance.** X25519 and AES-256 are vulnerable to quantum computing. Post-quantum key exchange (e.g., CRYSTALS-Kyber) is planned for a future version.
 7. **No independent audit.** This protocol has not undergone independent third-party security audit. Multiple rounds of internal review have been conducted.
 8. **Ghost shares are inherently distinguishable** from legitimate PoW shares by an adversary capable of verifying share validity. The protocol relies on the assumption that most adversaries (ISPs, firewalls) parse Stratum traffic at the JSON level but do NOT verify PoW.
+
+### 11.4 Ethical Considerations and Dual Use
+
+Visual Stratum is a dual-use technology. The same properties that protect a journalist communicating from a hostile jurisdiction can be exploited for harmful purposes.
+
+**Rate limiting as natural constraint.** Mining Gate requires continuous proof-of-work for channel access. At VS3-Monero rates (5 bytes/share), the effective bandwidth is ~5-50 bytes/second -- sufficient for asynchronous text messaging but impractical for high-volume abuse scenarios (botnet command-and-control, bulk data exfiltration) that require orders of magnitude more bandwidth.
+
+**Content blindness.** The pool operator cannot inspect E2E-encrypted message content. This is both a feature (protecting dissidents) and a limitation (preventing content moderation). The design prioritizes sender/receiver privacy over operator visibility, consistent with the end-to-end encryption principle.
+
+**Intended use cases.** Visual Stratum is designed for one-to-one and small-group asynchronous communication in environments where the network is hostile. It is not designed for mass broadcast, real-time streaming, or high-throughput applications.
+
+**Transparency.** This specification is published openly. The threat model (Section 11.1) and limitations (Section 11.3) are documented honestly. The protocol's bandwidth constraints, detectable sentinel (Section 3.3.5), and pool-visible metadata (Section 11.1) are stated explicitly rather than hidden.
 
 ---
 
@@ -1658,6 +1810,10 @@ The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"
 - [RFC6455] Fette, I. and Melnikov, A., "The WebSocket Protocol", RFC 6455, December 2011.
 - [RFC7540] Belshe, M., Peon, R., and Thomson, M., "Hypertext Transfer Protocol Version 2 (HTTP/2)", RFC 7540, May 2015.
 - [RFC8439] Nir, Y. and Langley, A., "ChaCha20 and Poly1305 for IETF Protocols", RFC 8439, June 2018.
+- [HOP02] Hopper, N., Langford, J., von Ahn, L., "Provably Secure Steganography", CRYPTO 2002. DOI: 10.1007/3-540-45708-9_6.
+- [PT1] "obfs4 (The obfourscator)", Tor Project Pluggable Transports. https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/obfs4
+- [PT2] Fifield, D., Lan, C., Hynes, R., Wegmann, P., and Paxson, V., "Blocking-resistant communication through domain fronting", PoPETs, 2015. (meek transport)
+- [RFC9420] Barnes, R., Beurdouche, B., Robert, R., Millican, J., Omara, E., and Cohn-Gordon, K., "The Messaging Layer Security (MLS) Protocol", RFC 9420, July 2023.
 
 ---
 
@@ -1667,13 +1823,15 @@ The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"
 // ===== Magic Bytes =====
 MAGIC_BYTE              = 0xAA
 
-// ===== Protocol Versions =====
+// ===== Protocol Versions (frame header VERSION byte) =====
 VERSION_V1              = 0x01    // Nonce LSB only (1 B/share)
 VERSION_V2              = 0x02    // + extranonce2 (3 B/share)
 VERSION_V3              = 0x03    // Ghost shares + ntime ext (5 B/share Monero, 7 B/share generic)
-VERSION_V3_BURST        = 0x04    // Extended extranonce2 (~200 B/share)
-VERSION_V3_GHOST        = 0x05    // Difficulty-1 cover shares (~200 B/share)
-VERSION_V3_TURBO        = 0x06    // Worker password field (~256 B/share)
+
+// ===== Profile IDs (capability negotiation only, NOT used in frame header) =====
+PROFILE_V3_BURST        = 0x04    // Extended extranonce2 (~200 B/share); frame VERSION = 0x03
+PROFILE_V3_GHOST        = 0x05    // Difficulty-1 cover shares (~200 B/share); frame VERSION = 0x03
+PROFILE_V3_TURBO        = 0x06    // Worker password field (~256 B/share); frame VERSION = 0x03
 
 // ===== Message Types =====
 MSG_TEXT                = 0x01
@@ -1838,6 +1996,7 @@ T+1000s  Cooldown elapsed (300s since suspension).
 
 | Version | Date | Changes |
 |---------|------|---------|
+| draft-01 | 2026-03-31 | Added share-to-frame serialization layer (4.4), related work and novelty (1.4), ethical considerations (11.4), expanded threat model with traffic analysis (11.1.5), defined message type payloads (4.2.1), resolved VERSION byte contradiction (4.1, 3.5, Appendix A), key distribution scope note (8.6), maximum encrypted plaintext (8.7), Stratum v2 compatibility note (9.5), nonce byte order (9.4), added [HOP02], [PT1], [PT2], [RFC9420] references. |
 | draft-00a | 2026-03-31 | Errata: fixed V2 test vector nonce, aligned oneshot HKDF info to implementation, simplified Mining Gate threshold to absolute hashrate, resolved TBD items, clarified VERSION byte semantics, added robustness principle for PAYLOAD_LEN. |
 | draft-00 | 2026-03-31 | Initial draft. Consolidation of VS1/VS2/VS3 specifications, paper, and reference implementation into a single RFC-style document. |
 
