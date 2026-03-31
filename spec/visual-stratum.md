@@ -301,6 +301,8 @@ For ghost shares in the reference implementation:
 - `ntime`: 2 bytes payload in low word
 - `result`: `'0' x 64` (64 zero characters = 32 zero bytes)
 
+Ghost share senders SHOULD set the `result` field to all zeros (`"0" x 64` hex). While not required for ghost share classification (which relies on sentinel detection and difficulty threshold), a zero result serves as an additional signal to VS-aware proxies, reducing false positive rates in mixed-traffic environments.
+
 #### 3.3.3 Encoding
 
 ```
@@ -489,6 +491,8 @@ The `VERSION` byte in the frame header (Section 4.1) indicates the encoding prof
 | GHOST | `0x05` | Any | difficulty-1 cover shares | ~200 | Medium | Specified |
 | TURBO | `0x06` | Any | worker password field | ~256 | Lower | Specified |
 
+**VERSION byte semantics:** The VERSION byte in the frame header (Section 4.1) identifies the **protocol generation** (VS1=0x01, VS2=0x02, VS3=0x03), NOT the encoding profile. A VS3 frame header is identical regardless of whether the frame was transported via VS3-Monero or VS3-Generic ghost shares. The encoding profile is determined at the share-classification layer (Section 6.1), not at the frame layer. A receiver that processes pre-assembled frames (e.g., via WebSocket relay) does not need to know the original encoding profile.
+
 ---
 
 ## 4. Frame Format
@@ -525,7 +529,7 @@ Field descriptions:
 | 3-4 | 2 | MESSAGE_ID | 16-bit message identifier, big-endian. Links all fragments of one logical message. |
 | 5 | 1 | FRAG_INDEX | 0-based index of this fragment within the message. |
 | 6 | 1 | FRAG_TOTAL | Total number of fragments for this message. MUST be in range [1, 50]. |
-| 7 | 1 | PAYLOAD_LEN | Byte length of this fragment's payload. MUST be in range [0, 128]. |
+| 7 | 1 | PAYLOAD_LEN | Byte length of this fragment's payload. Encoders MUST generate values in [0, 128] (MAX_FRAGMENT_SIZE). Decoders SHOULD accept values up to 255 for forward compatibility (robustness principle). |
 | 8..8+N | N | PAYLOAD | Fragment content. N = PAYLOAD_LEN. |
 
 The total frame size is `8 + PAYLOAD_LEN` bytes, with a maximum of `8 + 128 = 136` bytes.
@@ -548,6 +552,8 @@ msgId = (CSPRNG(2 bytes) XOR (timestamp_ms & 0xFFFF)) & 0xFFFF
 ```
 
 Implementations MUST track used message IDs and avoid collisions. When the tracking set exceeds 10,000 entries, the oldest half SHOULD be evicted.
+
+Implementations MUST NOT generate message ID `0xFFFF`, which is reserved for dummy traffic padding (Section 10.3.1). Similarly, for the 32-bit message ID in the multi-channel header, `0xFFFFFFFF` MUST NOT be generated.
 
 ### 4.2 Message Types
 
@@ -704,12 +710,13 @@ Mining Gate is the access control mechanism that binds VS communication bandwidt
                                                         v
                                                       ACTIVE
                                                      /      \
-                                [ratio < THRESHOLD] /        \ [ratio >= THRESHOLD]
+                        [hashrate < MIN_HASHRATE]   /        \ [hashrate >= MIN_HASHRATE]
                                                    v          \
                                               SUSPENDED        |
                                                    |           |
                          [COOLDOWN elapsed          |          |
-                          AND ratio >= THRESHOLD]   |          |
+                          AND hashrate              |          |
+                          >= MIN_HASHRATE]          |          |
                                                    \          |
                                                     +--------+
 ```
@@ -718,8 +725,8 @@ Mining Gate is the access control mechanism that binds VS communication bandwidt
 |-------|-----------|------------|
 | INACTIVE | Closed | -> GRACE on first valid share |
 | GRACE | Closed | -> ACTIVE after MIN_ACTIVATION shares within GRACE_PERIOD |
-| ACTIVE | **Open** | -> SUSPENDED if share ratio drops below THRESHOLD |
-| SUSPENDED | Closed | -> ACTIVE after COOLDOWN elapsed AND ratio >= THRESHOLD |
+| ACTIVE | **Open** | -> SUSPENDED if hashrate < MIN_HASHRATE during periodic check |
+| SUSPENDED | Closed | -> ACTIVE after COOLDOWN elapsed AND hashrate >= MIN_HASHRATE |
 
 ### 5.2 Share Validation
 
@@ -729,7 +736,7 @@ Mining Gate is algorithm-agnostic: it operates on Stratum-reported difficulty, n
 
 Ghost shares (difficulty <= ghostDiffMax) are NOT counted by Mining Gate for access control purposes. Only standard-difficulty shares contribute to the share rate calculation.
 
-### 5.3 Hashrate Calculation
+### 5.3 Hashrate Calculation and Suspension Condition
 
 Mining Gate calculates each miner's hashrate from a sliding window of recent shares:
 
@@ -744,27 +751,25 @@ Where:
 
 The elapsed time is measured between the first and last share in the window (not the full window size). This avoids underestimating hashrate for miners who recently connected.
 
-The Mining Gate function:
+The Mining Gate suspension condition is an absolute hashrate threshold:
 
 ```
-Let S_w(t) = number of valid shares in window [t - w, t]
-Let E_w(t) = expected shares = (hashrate / difficulty) * w
-
-gate(t) = OPEN    if S_w(t) / E_w(t) >= THRESHOLD
-           CLOSED  otherwise
+ACTIVE -> SUSPENDED   when hashrate < MIN_HASHRATE during periodic check
+SUSPENDED -> ACTIVE   when COOLDOWN elapsed AND hashrate >= MIN_HASHRATE
 ```
+
+Where `MIN_HASHRATE` defaults to 10 H/s (see Section 5.4). This absolute threshold replaces a relative share-ratio model, simplifying implementation while maintaining adequate spam prevention.
 
 ### 5.4 Configuration Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `WINDOW_SIZE` | 600,000 ms (10 min) | Rolling observation window |
-| `THRESHOLD` | 0.5 (50%) | Minimum share ratio to maintain ACTIVE state |
+| `WINDOW_SIZE` | 600,000 ms (10 min) | Rolling observation window for hashrate calculation |
+| `MIN_HASHRATE` | 10 H/s | Minimum hashrate to maintain ACTIVE state |
 | `GRACE_PERIOD` | 120,000 ms (2 min) | Initial connection allowance |
 | `MIN_ACTIVATION` | 3 shares | Minimum shares to exit GRACE and enter ACTIVE |
 | `COOLDOWN` | 300,000 ms (5 min) | Penalty period after suspension |
 | `CHECK_INTERVAL` | Random [60,000 - 180,000] ms | Randomized verification interval (CSPRNG) |
-| `MIN_HASHRATE` | 10 H/s | Minimum hashrate to count as actively mining |
 
 The CHECK_INTERVAL MUST be randomized per check using a CSPRNG. A deterministic or predictable check schedule enables burst-and-stop gaming strategies.
 
@@ -777,7 +782,7 @@ The CHECK_INTERVAL MUST be randomized per check using a CSPRNG. A deterministic 
 | Burst-and-stop | Checks are continuous and randomly timed (60-180s) |
 | Wallet spoofing | Session cryptographically bound to Stratum connection |
 | Predicting checks | Check interval is CSPRNG random, unpredictable |
-| Hashrate spoofing | Threshold is adaptive to miner's own historical rate |
+| Hashrate spoofing | Absolute MIN_HASHRATE threshold; miner must sustain real PoW |
 
 ### 5.6 Periodic Verification
 
@@ -832,9 +837,9 @@ The `ghostDiffMax` parameter determines the difficulty threshold below which sha
 
 Pools MUST document their `ghostDiffMax` setting. Miners MUST be informed of the pool's ghost share capability before attempting VS3 encoding.
 
-### 6.3 HMAC Rotating Sentinel (Appendix D)
+### 6.3 HMAC Rotating Sentinel
 
-The fixed `0xAA` sentinel is a known statistical distinguisher (Section 3.3.5). The following HMAC-based scheme replaces the fixed sentinel with a per-session, per-share derived tag.
+The fixed `0xAA` sentinel is a known statistical distinguisher (Section 3.3.5), as described in Appendix D of the Visual Stratum design paper [VS-PAPER]. The following HMAC-based scheme replaces the fixed sentinel with a per-session, per-share derived tag.
 
     Status: Specified, not yet implemented
 
@@ -934,7 +939,7 @@ The proxy MUST sanitize all traffic forwarded to the upstream pool to prevent VS
 
 1. **Ghost share filtering**: Shares with difficulty <= ghostDiffMax MUST NOT be forwarded.
 2. **ntime extension stripping**: If the miner includes a `ntime` TNZX extension field in Monero Stratum submits, the proxy MUST strip it before forwarding.
-3. **Nonce normalization**: [TBD -- whether to normalize nonce[0] in forwarded shares to eliminate any residual sentinel pattern]
+3. **Nonce normalization**: The proxy SHOULD NOT normalize `nonce[0]` in forwarded real shares. Real mining shares have uniformly distributed nonce values by construction; overwriting any nonce byte would invalidate the share's proof-of-work. Normalization is neither necessary nor safe.
 
 ### 7.3 Download Path (Pool -> Miner)
 
@@ -957,7 +962,11 @@ For Monero-style Stratum, the proxy MAY include a `vs3` extension field in `job`
 }
 ```
 
-For Bitcoin-style Stratum, the proxy MAY use a `mining.vs3` extension method or embed data in the `set_extranonce` message. [TBD -- exact Bitcoin-style injection mechanism]
+For Bitcoin-style Stratum, the proxy MAY inject VS3 frames using a `mining.vs3` extension method (a JSON-RPC notification with a single hex-encoded parameter). Pools that do not recognize this method will ignore it per standard JSON-RPC error handling. The proxy SHOULD prefer Monero-style field injection (embedding in job notification) when available, and fall back to the extension method for Bitcoin pools.
+
+> **Note:** This mechanism is specified but not yet validated against
+> production Bitcoin pools. Implementations SHOULD verify compatibility
+> before deployment.
 
 ### 7.4 WebSocket Relay Bootstrap
 
@@ -1079,13 +1088,22 @@ For one-shot messages (no pre-established session), the sender generates an ephe
 ```
 1. Generate ephemeral keypair: (e_priv, e_pub)
 2. Compute shared secret: s = X25519(e_priv, recipient_pub)
-3. Derive key: key = HKDF-SHA256(s, random_salt, "tnzx-oneshot-v2", 32)
+3. Derive key: key = HKDF-SHA256(s, random_salt, "tnzx-stego-e2e-v2", 32)
 4. Generate: nonce = CSPRNG(16), iv = CSPRNG(12)
 5. Compute AAD: aad = "tnzx-oneshot-v2" || nonce || e_pub
 6. Encrypt: ciphertext = AES-256-GCM.Encrypt(key, iv, plaintext, aad)
 7. Output: nonce(16) || e_pub(32) || salt(32) || iv(12) || ciphertext || tag(16)
 8. DISCARD e_priv immediately
 ```
+
+> **Implementation note:** The current reference implementation uses the same HKDF
+> info string (`"tnzx-stego-e2e-v2"`) for both session and one-shot encryption.
+> Domain separation is achieved through the use of ephemeral keypairs in one-shot
+> mode, which produce unique shared secrets per message. Future revisions of this
+> specification SHOULD introduce a distinct info string (e.g., `"tnzx-oneshot-v2"`)
+> for explicit domain separation.
+
+Note that the AAD prefix for one-shot encryption (`"tnzx-oneshot-v2"`) is distinct from the session AAD prefix (`"tnzx-e2e-v2"`). The HKDF info string and the AAD prefix serve different roles: the info string parameterizes key derivation, while the AAD prefix binds the ciphertext to its encryption context. The AAD distinction is preserved even though the HKDF info string is currently shared.
 
 Minimum one-shot message size: `16 + 32 + 32 + 12 + 1 + 16 = 109 bytes` (for 1 byte of plaintext).
 
@@ -1292,6 +1310,17 @@ When fragments are routed across multiple channels (BALANCED or SPEED modes), ea
 
 On the Stratum-only (ANON) path, the base 8-byte header from Section 4.1 is used directly. The 13-byte transport header applies ONLY to multi-channel routing.
 
+> **Compatibility note:** The 13-byte multi-channel transport header is a
+> DISTINCT framing layer used ONLY on L2 (HTTP/2) and L3 (WebSocket) channels.
+> It is NOT used on the L1 (Stratum) channel, which uses the 8-byte frame
+> header defined in Section 4.1. Receivers distinguish the two headers by
+> transport context: frames arriving via Stratum share extraction always use
+> the 8-byte header; frames arriving via WebSocket or HTTP/2 always use the
+> 13-byte header. The two header formats are never mixed on the same channel.
+> 
+> **Status:** The multi-channel transport header is specified for future
+> implementation. Current implementations use only the 8-byte frame header.
+
 The receiver MUST reassemble fragments from any channel, in any order.
 
 ### 10.3 Timing Decorrelation
@@ -1475,11 +1504,13 @@ Test: v2_standard_3bytes
     data_bytes:      [0xAA, 0xBB, 0xCC]
 
   Expected output:
-    nonce:       "a1b2c3d4e5f600aa"
+    nonce:       "a1b2c3d4e5f60a0a"
     extranonce2: "0000bbcc"
 
   Algorithm:
-    byte 0 (0xAA) -> nonce LSB nibbles: nonce[6]=0x0A, nonce[7]=0x0A
+    byte 0 (0xAA) -> nonce LSB nibbles:
+      nonce[6] = (0x00 & 0xF0) | ((0xAA >> 4) & 0x0F) = 0x0A
+      nonce[7] = (0x00 & 0xF0) | (0xAA & 0x0F)        = 0x0A
     byte 1 (0xBB) -> extranonce2[2] = 0xBB
     byte 2 (0xCC) -> extranonce2[3] = 0xCC
 ```
@@ -1491,7 +1522,7 @@ Test: State transitions
   T+0s:    0 shares, state = INACTIVE
   T+5s:    1 share,  state = GRACE
   T+30s:   3 shares, state = ACTIVE (channel opens)
-  T+900s:  rate = 30%, state = SUSPENDED (rate < 50% threshold)
+  T+900s:  hashrate = 5 H/s, state = SUSPENDED (hashrate < MIN_HASHRATE 10 H/s)
 ```
 
 ### 12.3 VS3 Vectors
@@ -1598,7 +1629,7 @@ The reference implementation uses AES-256-GCM (NIST SP 800-38D). For standard in
 
 #### 12.4.3 HKDF-SHA256
 
-The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"tnzx-stego-e2e-v2"` for session encryption and `"tnzx-oneshot-v2"` for one-shot encryption. For standard HKDF test vectors, see RFC 5869 Appendix A.
+The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"tnzx-stego-e2e-v2"` for both session and one-shot encryption (see Section 8.4 for rationale). The AAD prefix differs between modes: `"tnzx-e2e-v2"` for session, `"tnzx-oneshot-v2"` for one-shot. For standard HKDF test vectors, see RFC 5869 Appendix A.
 
 ---
 
@@ -1685,13 +1716,12 @@ LZ4_MAGIC               = 0x4C5A3401  // "LZ4\x01"
 
 // ===== Mining Gate Defaults =====
 WINDOW_SIZE_MS          = 600000  // 10 minutes
-THRESHOLD               = 0.5    // 50% of expected share rate
+MIN_HASHRATE            = 10      // H/s (absolute suspension threshold)
 GRACE_PERIOD_MS         = 120000  // 2 minutes
 MIN_ACTIVATION_SHARES   = 3
 COOLDOWN_MS             = 300000  // 5 minutes
 CHECK_INTERVAL_MIN_MS   = 60000   // 1 minute
 CHECK_INTERVAL_MAX_MS   = 180000  // 3 minutes
-MIN_HASHRATE            = 10      // H/s
 
 // ===== Dummy Traffic =====
 DUMMY_MSG_ID_8B         = 0xFFFF      // 8-byte header reserved ID
@@ -1705,9 +1735,9 @@ HMAC_ALGORITHM          = "SHA-256"
 
 // ===== Encryption Context Strings =====
 SESSION_INFO            = "tnzx-stego-e2e-v2"
-ONESHOT_INFO            = "tnzx-oneshot-v2"
+ONESHOT_INFO            = "tnzx-stego-e2e-v2"  // NOTE: same as SESSION_INFO in current impl; see Section 8.4
 SESSION_AAD_PREFIX      = "tnzx-e2e-v2"
-ONESHOT_AAD_PREFIX      = "tnzx-oneshot-v2"
+ONESHOT_AAD_PREFIX      = "tnzx-oneshot-v2"    // AAD prefix IS distinct from session
 
 // ===== Timing =====
 BALANCED_DELAY_MIN_MS   = 500
@@ -1791,14 +1821,14 @@ T+30s    Miner sends ghost share with VS3 payload.
          Data extracted and processed.
 
 T+700s   Periodic check fires (random interval).
-         Shares in window: 3, Expected: ~10
-         Ratio: 0.3 < THRESHOLD (0.5)
+         hashrate = total_difficulty / elapsed = 5 H/s
+         5 H/s < MIN_HASHRATE (10 H/s)
          State: SUSPENDED, Channel: CLOSED
          suspendedAt = T+700s
 
 T+1000s  Cooldown elapsed (300s since suspension).
-         Miner resumes mining, submits 5 shares.
-         Ratio: 0.6 >= THRESHOLD
+         Miner resumes mining, submits shares.
+         hashrate = 15 H/s >= MIN_HASHRATE (10 H/s)
          State: ACTIVE, Channel: OPEN
 ```
 
@@ -1808,6 +1838,7 @@ T+1000s  Cooldown elapsed (300s since suspension).
 
 | Version | Date | Changes |
 |---------|------|---------|
+| draft-00a | 2026-03-31 | Errata: fixed V2 test vector nonce, aligned oneshot HKDF info to implementation, simplified Mining Gate threshold to absolute hashrate, resolved TBD items, clarified VERSION byte semantics, added robustness principle for PAYLOAD_LEN. |
 | draft-00 | 2026-03-31 | Initial draft. Consolidation of VS1/VS2/VS3 specifications, paper, and reference implementation into a single RFC-style document. |
 
 ---
