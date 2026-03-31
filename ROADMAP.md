@@ -1,8 +1,8 @@
-# Visual Stratum Spec — Roadmap to draft-01
+# Visual Stratum Spec — Roadmap
 
 ## Phase A — Critical fixes (spec completeness)
 
-### A1. Share-to-Frame Serialization Layer (Section 4.3 new)
+### A1. Share-to-Frame Serialization Layer (Section 4.3 new) **DONE (draft-01)**
 The spec defines byte extraction from shares (Section 3) and frame parsing
 (Section 4), but the bridge between them is unspecified. Two independent
 implementers would not interoperate.
@@ -18,7 +18,7 @@ Must define:
 - Interleaved frames from same sender: NOT allowed on L1 (one frame at a
   time per connection); allowed on L2/L3 via multi-channel MESSAGE_ID
 
-### A2. VERSION byte contradiction (Section 3.7 vs 4.1)
+### A2. VERSION byte contradiction (Section 3.7 vs 4.1) **DONE (draft-01)**
 Section 4.1 lists VERSION values 0x01-0x06 (matching encoding profiles).
 Section 3.7 says VERSION identifies protocol generation (0x01-0x03 only).
 BURST/GHOST/TURBO profiles claim VERSION 0x04/0x05/0x06 in Section 3.5.
@@ -28,14 +28,14 @@ BURST/GHOST/TURBO are transport-level profiles, NOT frame-level versions.
 Update Section 4.1 table to remove 0x04-0x06. Add note that encoding profile
 is determined at share classification, not frame parsing.
 
-### A3. Define message type payloads (Section 4.2)
+### A3. Define message type payloads (Section 4.2) **DONE (draft-01)**
 Currently undefined:
 - ACK (0x02): payload = 2-byte MESSAGE_ID being acknowledged
 - PING (0x03): payload = empty (0 bytes); receiver responds with ACK
 - KEY_EXCHANGE (0x04): payload = 32-byte X25519 public key
 - HASHCASH (0x06): defer to future version, mark as RESERVED
 
-### A4. Related Work section (Section 1.4 new)
+### A4. Related Work section (Section 1.4 new) **DONE (draft-01)**
 Position VS relative to:
 - obfs4/meek (Tor pluggable transports): protocol mimicry vs stego-in-real-traffic
 - StegoTorus/DeltaShaper: HTTP/video stego vs mining stego
@@ -44,14 +44,14 @@ Position VS relative to:
 State the novel contribution explicitly: (1) mining traffic as cover,
 (2) Mining Gate as PoW-based access control, (3) no separate network endpoint.
 
-### A5. Ethical / dual-use section (Section 11.4 new)
+### A5. Ethical / dual-use section (Section 11.4 new) **DONE (draft-01)**
 NLnet expects this. Cover:
 - Dual-use acknowledgment
 - Mining Gate as natural rate limiter (impractical for high-volume abuse)
 - E2E encryption prevents content moderation (feature and risk)
 - Designed for 1-to-1/small-group, not mass broadcast
 
-### A6. Expand threat model (Section 11.1)
+### A6. Expand threat model (Section 11.1) **DONE (draft-01)**
 Add subsections:
 - Traffic analysis: correlated timing, share rate anomalies
 - Communication graph: pool learns who-talks-to-whom (same as Signal server)
@@ -61,13 +61,13 @@ Add subsections:
 - User-agent fingerprinting: recommend mimicking standard miner UA
 - Zero-result distinguisher: recommend random invalid result instead of 0x00*64
 
-### A7. Key distribution (Section 8.6 new or 1.2 scope note)
+### A7. Key distribution (Section 8.6 new or 1.2 scope note) **DONE (draft-01)**
 At minimum, state: "Key distribution (how Alice discovers Bob's public key)
 is outside the scope of this specification. The Falo protocol (separate
 document) addresses group key management. For 1-to-1 communication, users
 exchange public keys out-of-band (QR code, secure messenger, in-person)."
 
-### A8. Minor fixes
+### A8. Minor fixes **DONE (draft-01)**
 - Add Hopper et al. 2002 "Provably Secure Steganography" to references
 - Mention Stratum v2 (Sv2) forward compatibility limitation
 - Nonce hex string byte order: explicitly state big-endian (first 2 hex chars = byte[0])

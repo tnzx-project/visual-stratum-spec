@@ -7,7 +7,7 @@ communication over cryptocurrency mining traffic.
 
 | Document | Version | Status |
 |----------|---------|--------|
-| [Visual Stratum Protocol](spec/visual-stratum.md) | draft-00 | Work in progress |
+| [Visual Stratum Protocol](spec/visual-stratum.md) | draft-01 | Work in progress |
 
 ## Scope
 

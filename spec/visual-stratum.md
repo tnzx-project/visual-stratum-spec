@@ -12,7 +12,7 @@ This specification has not been submitted to or reviewed by the IETF or any stan
     Contact:       tnzx@proton.me
     Date:          March 2026
     Version:       draft-01
-    License:       LGPL-2.1-only (protocol suite)
+    License:       CC-BY-SA-4.0 (specification); LGPL-2.1-only (reference implementation)
     Repository:    https://github.com/tnzx-project/tnzx-protocol
 
 ## Abstract
@@ -25,39 +25,22 @@ This specification defines the wire format, encoding profiles, cryptographic des
 
 ## Table of Contents
 
-- 1\. Introduction
-  - 1.1 Purpose
-  - 1.2 Scope
-  - 1.3 Conventions and Terminology
-  - 1.4 Related Work and Novelty
-- 2\. Protocol Overview
-- 3\. Encoding Profiles
-- 4\. Frame Format
-  - 4.1 Frame Header
-  - 4.2 Message Types
-  - 4.3 Fragmentation
-  - 4.4 Share-to-Frame Byte Stream Assembly
-  - 4.5 Frame Reassembly
-  - 4.6 Implementation Limits
-  - 4.7 Error Handling
-- 5\. Mining Gate
-- 6\. Ghost Share Detection
-- 7\. Proxy Architecture
-- 8\. Cryptographic Design
-  - 8.6 Key Distribution
-  - 8.7 Maximum Encrypted Plaintext
-- 9\. Chain Adaptation
-  - 9.4 Nonce Byte Order
-  - 9.5 Stratum v2 Compatibility
-- 10\. Multi-Channel Transport (VS3)
-- 11\. Security Considerations
-  - 11.1 Threat Model (incl. 11.1.5 Traffic Analysis)
-  - 11.4 Ethical Considerations and Dual Use
-- 12\. Test Vectors
-- 13\. References
-- Appendix A -- Protocol Constants
-- Appendix B -- Example Stratum JSON Exchanges
-- Appendix C -- Changelog
+1. Introduction
+2. Protocol Overview
+3. Encoding Profiles
+4. Frame Format
+5. Mining Gate
+6. Ghost Share Detection
+7. Proxy Architecture
+8. Cryptographic Design
+9. Chain Adaptation
+10. Multi-Channel Transport (VS3)
+11. Security Considerations
+12. Test Vectors
+13. References
+Appendix A — Protocol Constants
+Appendix B — Example Stratum JSON Exchanges
+Appendix C — Changelog
 
 ---
 
@@ -84,7 +67,7 @@ This specification does NOT cover the Falo anonymous coordination protocol, whic
 
 ### 1.3 Conventions and Terminology
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119].
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
 
 | Term | Definition |
 |------|-----------|
@@ -1111,7 +1094,7 @@ Wallet Seed (256-bit entropy)
           +-- Derived via birational map: u = (1 + y) / (1 - y) mod p
 ```
 
-The Ed25519 to X25519 conversion uses the standard birational map between twisted Edwards and Montgomery curves [Bernstein 2006]:
+The Ed25519 to X25519 conversion uses the standard birational map between twisted Edwards and Montgomery curves [Bernstein2006]:
 
 ```
 u = (1 + y) / (1 - y) mod p
@@ -1497,7 +1480,7 @@ Implementations MUST NOT set the interval minimum below 5 seconds to prevent den
 
 ### 10.5 Compression
 
-LZ4 compression [Collet 2011] is applied before encryption for payloads exceeding a threshold:
+LZ4 compression [Collet2011] is applied before encryption for payloads exceeding a threshold:
 
 ```
 Processing pipeline:
@@ -1797,23 +1780,17 @@ The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"
 ### Informative References
 
 - [Bernstein2006] Bernstein, D.J., "Curve25519: New Diffie-Hellman Speed Records", PKC 2006.
-- [Fridrich2009] Fridrich, J., "Steganography in Digital Media: Principles, Algorithms, and Applications", Cambridge University Press, 2009.
-- [Back2002] Back, A., "Hashcash -- A Denial of Service Counter-Measure", 2002.
 - [Partala2018] Partala, J., "Provably secure covert communication on blockchain", Cryptography, 2(3):18, 2018.
 - [Frkat2020] Frkat, D., Annessi, R., and Zseby, T., "Chainchannels: Private botnet communication over public blockchains", IEEE ICBC, 2020.
 - [Cao2023] Cao, Y., et al., "A survey of blockchain-based information hiding", Journal of Information Security and Applications, 71:103385, 2023.
 - [StegoTorus] Weinberg, Z., et al., "StegoTorus: A Camouflage Proxy for the Tor Anonymity System", ACM CCS, 2012.
-- [FreeWave] Houmansadr, A., Brubaker, C., and Shmatikov, V., "The Parrot is Dead: Observing Unobservable Network Communications", IEEE S&P, 2013.
 - [DeltaShaper] Barradas, D., Santos, N., and Rodrigues, L., "DeltaShaper: Enabling Unobservable Censorship-Resistant TCP Tunneling over Videoconferencing Streams", PoPETs, 2017.
 - [Collet2011] Collet, Y., "LZ4 -- Extremely Fast Compression", 2011.
-- [CRIME] Rizzo, J. and Duong, T., "The CRIME Attack", Ekoparty, 2012.
-- [RFC6455] Fette, I. and Melnikov, A., "The WebSocket Protocol", RFC 6455, December 2011.
-- [RFC7540] Belshe, M., Peon, R., and Thomson, M., "Hypertext Transfer Protocol Version 2 (HTTP/2)", RFC 7540, May 2015.
-- [RFC8439] Nir, Y. and Langley, A., "ChaCha20 and Poly1305 for IETF Protocols", RFC 8439, June 2018.
 - [HOP02] Hopper, N., Langford, J., von Ahn, L., "Provably Secure Steganography", CRYPTO 2002. DOI: 10.1007/3-540-45708-9_6.
 - [PT1] "obfs4 (The obfourscator)", Tor Project Pluggable Transports. https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/obfs4
 - [PT2] Fifield, D., Lan, C., Hynes, R., Wegmann, P., and Paxson, V., "Blocking-resistant communication through domain fronting", PoPETs, 2015. (meek transport)
 - [RFC9420] Barnes, R., Beurdouche, B., Robert, R., Millican, J., Omara, E., and Cohn-Gordon, K., "The Messaging Layer Security (MLS) Protocol", RFC 9420, July 2023.
+- [VS-PAPER] TNZX Project. "Visual Stratum: Mining-Gated Steganographic Communication over Cryptocurrency Channels." Technical report, March 2026. https://github.com/tnzx-project/tnzx-protocol/blob/master/papers/visual-stratum/paper.md
 
 ---
 
