@@ -78,7 +78,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | **Share** | A Stratum `mining.submit` message containing a candidate block solution |
 | **Stratum** | The dominant JSON-RPC mining pool communication protocol (v1) |
 | **VS-aware pool** | A mining pool that implements VS ghost share detection and frame extraction |
-| **VS-enhanced miner** | A mining client (e.g., tnzxminer) that implements VS encoding profiles |
+| **VS-enhanced miner** | A mining client (e.g., vs-miner) that implements VS encoding profiles |
 | **ghostDiffMax** | Pool-side configuration parameter; shares with difficulty <= ghostDiffMax are treated as ghost shares |
 | **CSPRNG** | Cryptographically Secure Pseudo-Random Number Generator |
 | **AAD** | Additional Authenticated Data (used in AEAD ciphers) |
@@ -98,6 +98,8 @@ Visual Stratum relates to three areas of prior work:
 
 **Blockchain covert channels.** Partala (2018) [Partala2018] demonstrated covert payloads in Bitcoin transaction fields. Frkat, Annessi, and Zseby (2020) [Frkat2020] quantified embedding capacity across blockchain fields. Cao et al. (2023) [Cao2023] surveyed blockchain information hiding techniques and identified mining-protocol-level embedding as under-explored. Visual Stratum operates at the mining protocol layer (Stratum), not the transaction layer. This means: no on-chain fees, no permanent records, no confirmation delays, and bandwidth limited by share rate (seconds) rather than block rate (minutes).
 
+**Metadata-private messaging.** Signal's sealed sender [SealedSender] hides the sender's identity from the server by encrypting the sender field inside the message envelope. Visual Stratum achieves an analogous property: the pool operator sees only `MSG_ENCRYPTED` (0x05) as the frame type, with the real message type hidden inside the encrypted payload (Section 4.2.2). The pool's trust position is comparable to Signal's server — it learns who communicates with whom (via wallet-based routing) but cannot read content or distinguish message types.
+
 **Access control for covert channels.** Mining Gate (Section 5) binds communication bandwidth to active proof-of-work. This combines anti-spam, Sybil resistance, and economic sustainability in a single mechanism. To our knowledge, using proof-of-work as an access control gate for a steganographic channel has not been proposed in prior work. Hopper et al. [HOP02] formalized provably secure steganography but did not address access control for the covert channel itself.
 
 ---
@@ -114,7 +116,7 @@ Visual Stratum operates as a layered protocol stack:
 |           Chat, Files, Key Exchange, Metadata                |
 +-------------------------------------------------------------+
 |                    ENCRYPTION LAYER                          |
-|         AES-256-GCM + X25519 ECDH + HKDF-SHA256             |
+|         XChaCha20-Poly1305 + X25519 ECDH + HKDF-SHA256      |
 +-------------------------------------------------------------+
 |                    FRAMING LAYER                             |
 |         VS3 Frame Format (8-byte header + payload)           |
@@ -160,7 +162,7 @@ The pool natively understands VS encoding, extracts frames from ghost shares, an
 Requirements:
 - Pool MUST implement ghost share detection (Section 6).
 - Pool MUST configure `ghostDiffMax`.
-- Miner MUST use a VS-enhanced client (e.g., tnzxminer).
+- Miner MUST use a VS-enhanced client (e.g., vs-miner).
 
 #### 2.3.2 Proxy Deployment
 
@@ -231,7 +233,7 @@ The miner MUST find a valid PoW solution with the constrained nonce. The share M
 
 #### 3.1.4 Undetectability
 
-The low nibbles of a legitimate mining nonce are uniformly distributed (see Section 11.2). Encrypted payload bytes (AES-256-GCM output) are also uniformly distributed. No statistical test can distinguish a V1-modified nonce from an unmodified one. This argument holds with full strength for the V1 profile.
+The low nibbles of a legitimate mining nonce are uniformly distributed (see Section 11.2). Encrypted payload bytes (XChaCha20-Poly1305 output) are also uniformly distributed. No statistical test can distinguish a V1-modified nonce from an unmodified one. This argument holds with full strength for the V1 profile.
 
 ### 3.2 V2 -- Nonce + Extranonce2 Embedding (3 bytes/share)
 
@@ -291,7 +293,7 @@ The extranonce2 channel has a weaker undetectability profile than the nonce chan
 
     Profile ID:     VERSION_V3 (0x03)
     Chain:          Monero (RandomX) with TNZX pool extensions
-    Miner:          VS-enhanced miner (tnzxminer) REQUIRED
+    Miner:          VS-enhanced miner (vs-miner) REQUIRED
     Bytes/share:    5 (3 from nonce + 2 from ntime extension)
     Stealth:        Maximum for nonce[1..3]; sentinel byte detectable (see 6.1, 11.2)
 
@@ -299,7 +301,7 @@ The extranonce2 channel has a weaker undetectability profile than the nonce chan
 
 Standard Monero Stratum `mining.submit` contains exactly: `nonce` (4 bytes), `result` (32 bytes), `job_id`, and `params.id`. The fields `ntime` and `extranonce2` do NOT exist in standard Monero Stratum.
 
-In VS3-Monero, the `ntime` field is a TNZX extension field added by the VS-enhanced miner (tnzxminer) to the submit parameters. Standard XMRig does NOT send this field. Standard XMRig does NOT produce ghost shares. VS3-Monero communication REQUIRES both a VS-enhanced miner and a VS-aware pool with `ghostDiffMax` configured.
+In VS3-Monero, the `ntime` field is a TNZX extension field added by the VS-enhanced miner (vs-miner) to the submit parameters. Standard XMRig does NOT send this field. Standard XMRig does NOT produce ghost shares. VS3-Monero communication REQUIRES both a VS-enhanced miner and a VS-aware pool with `ghostDiffMax` configured.
 
 #### 3.3.2 Ghost Share Definition
 
@@ -585,7 +587,7 @@ Implementations MUST NOT generate message ID `0xFFFF`, which is reserved for dum
 | `0x02` | ACK | Acknowledgment of received message |
 | `0x03` | PING | Keepalive / presence check |
 | `0x04` | KEY_EXCHANGE | X25519 public key for session establishment |
-| `0x05` | ENCRYPTED | AES-256-GCM encrypted payload (opaque to framing layer) |
+| `0x05` | ENCRYPTED | XChaCha20-Poly1305 encrypted payload (opaque to framing layer) |
 | `0x06` | HASHCASH | Mining Gate proof-of-work token |
 
 Implementations MUST ignore frames with unknown message types and MUST NOT treat them as errors. This allows future extension.
@@ -600,13 +602,45 @@ Implementations MUST ignore frames with unknown message types and MUST NOT treat
 
 **KEY_EXCHANGE (0x04):** Payload is a 32-byte X25519 public key (raw bytes, not hex-encoded). See Section 8.1 for the key exchange protocol.
 
-**ENCRYPTED (0x05):** Payload is an AES-256-GCM ciphertext envelope as defined in Section 8.2. The envelope format is:
+**ENCRYPTED (0x05):** Payload is an XChaCha20-Poly1305 ciphertext envelope as defined in Section 8.2. Two envelope formats exist depending on whether a session has been established:
 
+**One-shot format** (no pre-established session):
 ```
-nonce(16) || salt(32) || iv(12) || ciphertext || tag(16)
+replayId(16) || ephPub(32) || salt(32) || nonce(24) || ciphertext || tag(16)
 ```
+Overhead: 120 bytes. Minimum envelope size: 121 bytes (1 byte plaintext).
+
+**Session format** (established shared secret via prior key exchange):
+```
+replayId(16) || salt(32) || nonce(24) || ciphertext || tag(16)
+```
+Overhead: 88 bytes. Minimum envelope size: 89 bytes (1 byte plaintext).
+
+The receiver determines which format to parse based on session state: if a shared secret exists for the sender, the session format MUST be used; otherwise, the one-shot format MUST be assumed. The 32-byte size difference (presence or absence of `ephPub`) ensures unambiguous parsing when session state is known. See Section 8.2 for the full encryption and decryption procedures.
 
 **HASHCASH (0x06):** Reserved for future use. Implementations MUST NOT generate frames with this type. Receivers MUST silently discard them.
+
+#### 4.2.2 Encrypted Type Envelope
+
+When E2E encryption is in use, all outgoing frames MUST use `MSG_ENCRYPTED` (0x05) as the external type in the wire header. The real message type is prepended as the first byte of the plaintext before encryption:
+
+```
+Sender:
+  inner = [realType(1)] || [originalPayload]
+  encrypted = E2E_encrypt(inner)
+  frame = VS3Frame(type=0x05, payload=encrypted)
+
+Receiver:
+  decrypted = E2E_decrypt(frame.payload)
+  realType = decrypted[0]
+  originalPayload = decrypted[1..]
+```
+
+This ensures that a pool operator or passive observer sees only `0x05 ENCRYPTED` for every frame, regardless of the actual operation (TEXT, KEY_EXCHANGE, PING, etc.). The real message type is hidden inside the encrypted payload and is visible only to the intended recipient.
+
+Implementations that do not support E2E encryption MAY send message types in cleartext. However, cleartext type headers leak application-level metadata (e.g., distinguishing chat from key exchange) and SHOULD be avoided in deployment environments where metadata privacy is required.
+
+The reference implementation provides `wrapTypedPayload()` and `unwrapTypedPayload()` for this purpose. The SDK enforces this envelope for all messages sent via `VS3Client`.
 
 ### 4.3 Fragmentation
 
@@ -696,7 +730,7 @@ If a share is lost or corrupted (e.g., network error, pool drops the submit), th
 
 - The scanning algorithm (4.4.3) naturally recovers by advancing past invalid MAGIC candidates until a valid frame header is found.
 - Partial frames whose MESSAGE_TIMEOUT_MS expires are discarded (Section 4.6).
-- The AES-GCM authentication tag (Section 8.2) detects corrupted messages at the application layer after reassembly.
+- The Poly1305 authentication tag (Section 8.2) detects corrupted messages at the application layer after reassembly.
 
 Implementations SHOULD track frame parse failures and emit a diagnostic event after 3 consecutive failed parse attempts, indicating possible stream desynchronization.
 
@@ -1116,17 +1150,17 @@ shared_secret = X25519(a_priv, b_pub)   // 32 bytes
 
 The shared secret MUST NOT be used directly as an encryption key. It MUST be processed through HKDF (Section 8.3).
 
-### 8.2 Authenticated Encryption (AES-256-GCM)
+### 8.2 Authenticated Encryption (XChaCha20-Poly1305)
 
-All message encryption uses AES-256-GCM [NIST SP 800-38D].
+All message encryption uses XChaCha20-Poly1305 [Bernstein2008].
 
 | Parameter | Value |
 |-----------|-------|
-| Algorithm | AES-256-GCM |
+| Algorithm | XChaCha20-Poly1305 |
 | Key size | 256 bits (32 bytes) |
-| IV size | 96 bits (12 bytes), random per message |
+| Nonce size | 192 bits (24 bytes), random per message |
 | Authentication tag | 128 bits (16 bytes) |
-| AAD | Protocol context string + message nonce |
+| AAD | Protocol context string + replay nonce + ephemeral public key |
 
 #### 8.2.1 Session Encryption
 
@@ -1134,27 +1168,27 @@ For established sessions (both parties have completed key exchange):
 
 **Encrypt:**
 ```
-nonce      = CSPRNG(16 bytes)           // replay protection nonce
+replayId   = CSPRNG(16 bytes)           // replay protection
 salt       = CSPRNG(32 bytes)           // HKDF salt
-iv         = CSPRNG(12 bytes)           // GCM IV
-key        = HKDF-SHA256(shared_secret, salt, "tnzx-stego-e2e-v2", 32)
-aad        = "tnzx-e2e-v2" || nonce
-ciphertext = AES-256-GCM.Encrypt(key, iv, plaintext, aad)
-tag        = AES-256-GCM.Tag()
+nonce      = CSPRNG(24 bytes)           // XChaCha20 nonce
+key        = HKDF-SHA256(shared_secret, salt, "tnzx-e2e-v3", 32)
+aad        = "tnzx-e2e-v3" || replayId
+ciphertext = XChaCha20-Poly1305.Encrypt(key, nonce, plaintext, aad)
+tag        = XChaCha20-Poly1305.Tag()
 
-output = nonce(16) || salt(32) || iv(12) || ciphertext || tag(16)
+output = replayId(16) || salt(32) || nonce(24) || ciphertext || tag(16)
 ```
 
 **Decrypt:**
 ```
-Parse: nonce(16) || salt(32) || iv(12) || ciphertext || tag(16)
-Check: nonce not in seen_nonces (replay protection)
-key   = HKDF-SHA256(shared_secret, salt, "tnzx-stego-e2e-v2", 32)
-aad   = "tnzx-e2e-v2" || nonce
-plaintext = AES-256-GCM.Decrypt(key, iv, ciphertext, tag, aad)
+Parse: replayId(16) || salt(32) || nonce(24) || ciphertext || tag(16)
+Check: replayId not in seen_nonces (replay protection)
+key   = HKDF-SHA256(shared_secret, salt, "tnzx-e2e-v3", 32)
+aad   = "tnzx-e2e-v3" || replayId
+plaintext = XChaCha20-Poly1305.Decrypt(key, nonce, ciphertext, tag, aad)
 ```
 
-Minimum encrypted message size: `16 + 32 + 12 + 1 + 16 = 77 bytes` (for 1 byte of plaintext).
+Minimum session message size: `16 + 32 + 24 + 1 + 16 = 89 bytes` (for 1 byte of plaintext).
 
 ### 8.3 Key Derivation (HKDF-SHA256)
 
@@ -1165,7 +1199,7 @@ key = HKDF(
     hash    = SHA-256,
     IKM     = shared_secret,           // 32 bytes from X25519
     salt    = random(32 bytes),        // fresh per message
-    info    = "tnzx-stego-e2e-v2",     // context string
+    info    = "tnzx-e2e-v3",           // context string
     length  = 32                       // 256-bit output key
 )
 ```
@@ -1179,24 +1213,23 @@ For one-shot messages (no pre-established session), the sender generates an ephe
 ```
 1. Generate ephemeral keypair: (e_priv, e_pub)
 2. Compute shared secret: s = X25519(e_priv, recipient_pub)
-3. Derive key: key = HKDF-SHA256(s, random_salt, "tnzx-stego-e2e-v2", 32)
-4. Generate: nonce = CSPRNG(16), iv = CSPRNG(12)
-5. Compute AAD: aad = "tnzx-oneshot-v2" || nonce || e_pub
-6. Encrypt: ciphertext = AES-256-GCM.Encrypt(key, iv, plaintext, aad)
-7. Output: nonce(16) || e_pub(32) || salt(32) || iv(12) || ciphertext || tag(16)
+3. Derive key: key = HKDF-SHA256(s, random_salt, "tnzx-e2e-v3", 32)
+4. Generate: replayId = CSPRNG(16), nonce = CSPRNG(24)
+5. Compute AAD: aad = "tnzx-oneshot-v3" || replayId || e_pub
+6. Encrypt: ciphertext = XChaCha20-Poly1305.Encrypt(key, nonce, plaintext, aad)
+7. Output: replayId(16) || e_pub(32) || salt(32) || nonce(24) || ciphertext || tag(16)
 8. DISCARD e_priv immediately
 ```
 
-> **Implementation note:** The current reference implementation uses the same HKDF
-> info string (`"tnzx-stego-e2e-v2"`) for both session and one-shot encryption.
-> Domain separation is achieved through the use of ephemeral keypairs in one-shot
-> mode, which produce unique shared secrets per message. Future revisions of this
-> specification SHOULD introduce a distinct info string (e.g., `"tnzx-oneshot-v2"`)
-> for explicit domain separation.
+> **Implementation note:** The HKDF info string `"tnzx-e2e-v3"` is shared between
+> session and one-shot encryption. Domain separation is achieved through the AAD
+> prefix: `"tnzx-e2e-v3"` for session messages, `"tnzx-oneshot-v3"` for one-shot
+> messages. Additionally, one-shot mode uses ephemeral keypairs which produce unique
+> shared secrets per message.
 
-Note that the AAD prefix for one-shot encryption (`"tnzx-oneshot-v2"`) is distinct from the session AAD prefix (`"tnzx-e2e-v2"`). The HKDF info string and the AAD prefix serve different roles: the info string parameterizes key derivation, while the AAD prefix binds the ciphertext to its encryption context. The AAD distinction is preserved even though the HKDF info string is currently shared.
+Note that the AAD prefix for one-shot encryption (`"tnzx-oneshot-v3"`) is distinct from the session AAD prefix (`"tnzx-e2e-v3"`). The HKDF info string and the AAD prefix serve different roles: the info string parameterizes key derivation, while the AAD prefix binds the ciphertext to its encryption context.
 
-Minimum one-shot message size: `16 + 32 + 32 + 12 + 1 + 16 = 109 bytes` (for 1 byte of plaintext).
+Minimum one-shot message size: `16 + 32 + 32 + 24 + 1 + 16 = 121 bytes` (for 1 byte of plaintext).
 
 Compromise of the recipient's long-term key cannot decrypt past one-shot messages because the ephemeral private key no longer exists.
 
@@ -1238,7 +1271,7 @@ The Falo anonymous coordination protocol (specified in a separate document) addr
 
 ### 8.7 Maximum Encrypted Plaintext
 
-**Maximum encrypted plaintext.** With session encryption overhead of 76 bytes (nonce 16 + salt 32 + IV 12 + tag 16) and a maximum message size of 6,400 bytes (Section 4.6), the maximum plaintext that can be encrypted and transmitted in a single VS3 message is 6,400 - 76 = **6,324 bytes**.
+**Maximum encrypted plaintext.** With session encryption overhead of 88 bytes (replayId 16 + salt 32 + nonce 24 + tag 16) and a maximum message size of 6,400 bytes (Section 4.6), the maximum plaintext that can be encrypted and transmitted in a single VS3 message is 6,400 - 88 = **6,312 bytes**. For one-shot messages, the overhead is 120 bytes (replayId 16 + ephPub 32 + salt 32 + nonce 24 + tag 16), yielding a maximum of 6,400 - 120 = **6,280 bytes**.
 
 ---
 
@@ -1257,7 +1290,7 @@ Monero Stratum uses a simplified JSON-RPC protocol with the following relevant m
     "params": {
         "login": "<wallet_address>",
         "pass": "<password>",
-        "agent": "tnzxminer/1.0"
+        "agent": "vs-miner/1.0"
     }
 }
 ```
@@ -1485,7 +1518,7 @@ LZ4 compression [Collet2011] is applied before encryption for payloads exceeding
 ```
 Processing pipeline:
   Plaintext -> LZ4 Compress (if size > threshold) -> Pad to 32-byte boundary
-            -> AES-256-GCM Encrypt -> Fragment -> Send
+            -> XChaCha20-Poly1305 Encrypt -> Fragment -> Send
 ```
 
 | Parameter | Value | Rationale |
@@ -1521,9 +1554,11 @@ Traffic analysis is the most likely real-world attack against Visual Stratum and
 
 **Communication graph.** The pool operator (or proxy operator) learns who communicates with whom, when, and how much -- but not what. This is analogous to Signal's server trust model. The pool sees the communication graph but not the content.
 
-**Intersection attacks.** If only a small number of miners on a pool use VS-enhanced software, the anonymity set is correspondingly small. The tnzxminer user-agent string in the Stratum login identifies VS users. Implementations SHOULD mimic standard miner user-agent strings (e.g., "XMRig/6.21.0") to avoid this fingerprint. The proxy (Section 7.2) already sanitizes the user-agent before forwarding upstream.
+**Intersection attacks.** If only a small number of miners on a pool use VS-enhanced software, the anonymity set is correspondingly small. The vs-miner user-agent string in the Stratum login identifies VS users. Implementations SHOULD mimic standard miner user-agent strings (e.g., "XMRig/6.21.0") to avoid this fingerprint. The proxy (Section 7.2) already sanitizes the user-agent before forwarding upstream.
 
-**Sequential correlation.** VS3 frame headers contain structured bytes (MAGIC=0xAA, VERSION=0x03) that recur at predictable intervals in the byte stream. While individual encrypted payload bytes are uniformly distributed, the frame structure across multiple shares creates a second-order pattern. Mitigation: encrypt the entire frame (including header) before embedding; the current specification encrypts only the payload (MSG_TYPE ENCRYPTED, 0x05), leaving the header in cleartext. Future revisions SHOULD consider full-frame encryption.
+**Sequential correlation.** VS3 frame headers contain structured bytes (MAGIC=0xAA, VERSION=0x03) that recur at predictable intervals in the byte stream. While individual encrypted payload bytes are uniformly distributed, the frame structure across multiple shares creates a second-order pattern. Mitigation: the encrypted type envelope (Section 4.2.2) hides the real message type inside the ciphertext, but the frame header (MAGIC, VERSION, MESSAGE_ID, fragment fields) remains in cleartext. Future revisions SHOULD consider full-frame encryption to eliminate header-based correlation.
+
+**Zero-result distinguisher.** Ghost shares use an all-zero `result` field (64 hex zeros) because no proof-of-work is computed. An adversary who inspects the `result` field of every submitted share can distinguish ghost shares from real shares: real shares have valid hashes, ghost shares have `0x00*32`. This is a trivial distinguisher for an adversary with per-share hash verification capability. Mitigation: implementations SHOULD fill the result field with random bytes rather than zeros. Note that most adversaries (ISP-level DPI, passive observers) cannot perform per-share hash validation because they lack the block template context. This threat applies primarily to the pool operator or a network observer colluding with the pool.
 
 ### 11.2 Undetectability Analysis
 
@@ -1531,7 +1566,7 @@ The undetectability of the Stratum embedding is analyzed per field:
 
 #### 11.2.1 Nonce Channel (V1, V2, V3) -- Strong
 
-Mining nonces are uniformly random 32-bit values. The LSB of a random value is uniformly distributed. VS replaces LSBs with AES-256-GCM encrypted payload bytes, which are also uniformly distributed.
+Mining nonces are uniformly random 32-bit values. The LSB of a random value is uniformly distributed. VS replaces LSBs with XChaCha20-Poly1305 encrypted payload bytes, which are also uniformly distributed.
 
 For a random nonce n and encrypted payload byte b:
 
@@ -1539,7 +1574,7 @@ For a random nonce n and encrypted payload byte b:
 H(n mod 2^8) = H(b) = 8 bits (maximum entropy)
 ```
 
-No statistical test can distinguish the modified field from an unmodified one, because both contain maximum-entropy data. This argument holds for any cipher satisfying IND-CPA (indistinguishability under chosen-plaintext attack), which AES-256-GCM satisfies.
+No statistical test can distinguish the modified field from an unmodified one, because both contain maximum-entropy data. This argument holds for any cipher satisfying IND-CPA (indistinguishability under chosen-plaintext attack), which XChaCha20-Poly1305 satisfies.
 
 **Conclusion:** The nonce embedding channel is statistically undetectable under the entropy-equivalence argument.
 
@@ -1591,7 +1626,7 @@ Design targets:
 3. **Pool trust.** A malicious pool can selectively drop ghost shares. It CANNOT read them (E2E encryption). Dropping valid shares reduces the pool's own mining revenue.
 4. **Long-term traffic analysis.** An adversary observing traffic patterns over weeks may detect correlations between message activity and share submission patterns. Dummy traffic (Section 10.3.1) mitigates but does not eliminate this risk.
 5. **Endpoint compromise.** If a device is compromised, all cryptographic protections are bypassed. This limitation is shared by all communication systems.
-6. **No quantum resistance.** X25519 and AES-256 are vulnerable to quantum computing. Post-quantum key exchange (e.g., CRYSTALS-Kyber) is planned for a future version.
+6. **No quantum resistance.** X25519 is vulnerable to quantum computing (XChaCha20-Poly1305 provides 128-bit classical security but no post-quantum resistance). Post-quantum key exchange (e.g., CRYSTALS-Kyber) is planned for a future version.
 7. **No independent audit.** This protocol has not undergone independent third-party security audit. Multiple rounds of internal review have been conducted.
 8. **Ghost shares are inherently distinguishable** from legitimate PoW shares by an adversary capable of verifying share validity. The protocol relies on the assumption that most adversaries (ISPs, firewalls) parse Stratum traffic at the JSON level but do NOT verify PoW.
 
@@ -1758,13 +1793,15 @@ Bob Public:    de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f
 Shared Secret: 4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
 ```
 
-#### 12.4.2 AES-256-GCM
+#### 12.4.2 XChaCha20-Poly1305
 
-The reference implementation uses AES-256-GCM (NIST SP 800-38D). For standard interoperability test vectors, see NIST SP 800-38D Appendix B, Test Case 4 (256-bit key).
+The reference implementation uses XChaCha20-Poly1305 [Bernstein2008]. For standard interoperability test vectors, see RFC 8439 Section 2.8.2 (ChaCha20-Poly1305) and draft-irtf-cfrg-xchacha (XChaCha20 extension).
+
+> **Note:** Protocol-specific test vectors (HKDF with `"tnzx-e2e-v3"` info string, one-shot and session encryption with known keys) are published in the interoperability test suite: <https://github.com/tnzx-project/tnzx-protocol/tree/master/test-vectors>.
 
 #### 12.4.3 HKDF-SHA256
 
-The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"tnzx-stego-e2e-v2"` for both session and one-shot encryption (see Section 8.4 for rationale). The AAD prefix differs between modes: `"tnzx-e2e-v2"` for session, `"tnzx-oneshot-v2"` for one-shot. For standard HKDF test vectors, see RFC 5869 Appendix A.
+The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"tnzx-e2e-v3"` for both session and one-shot encryption (see Section 8.4 for rationale). The AAD prefix differs between modes: `"tnzx-e2e-v3"` for session, `"tnzx-oneshot-v3"` for one-shot. For standard HKDF test vectors, see RFC 5869 Appendix A.
 
 ---
 
@@ -1775,7 +1812,8 @@ The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
 - [RFC5869] Krawczyk, H. and Eronen, P., "HMAC-based Extract-and-Expand Key Derivation Function (HKDF)", RFC 5869, May 2010.
 - [RFC7748] Langley, A., Hamburg, M., and Turner, S., "Elliptic Curves for Security", RFC 7748, January 2016.
-- [NIST-GCM] Dworkin, M., "Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC", NIST SP 800-38D, November 2007.
+- [RFC8439] Nir, Y. and Langley, A., "ChaCha20 and Poly1305 for IETF Protocols", RFC 8439, June 2018.
+- [Bernstein2008] Bernstein, D.J., "ChaCha, a variant of Salsa20", January 2008.
 
 ### Informative References
 
@@ -1831,11 +1869,14 @@ BYTES_PER_SHARE_V3_MONO = 5       // VS3-Monero (3B nonce + 2B ntime)
 BYTES_PER_SHARE_V3_GEN  = 7       // VS3-Generic (1B nonce + 4B extranonce2 + 2B ntime)
 
 // ===== Cryptographic Constants =====
-KEY_LENGTH              = 32      // 256 bits (AES key, HKDF output, X25519 keys)
-IV_LENGTH               = 12      // 96 bits (GCM standard)
-AUTH_TAG_LENGTH         = 16      // 128 bits (GCM tag)
+KEY_LENGTH              = 32      // 256 bits (XChaCha20 key, HKDF output, X25519 keys)
+NONCE_LENGTH_XCHACHA    = 24      // 192 bits (XChaCha20 nonce)
+AUTH_TAG_LENGTH         = 16      // 128 bits (Poly1305 tag)
+REPLAY_ID_LENGTH        = 16      // 128 bits (replay protection)
+EPH_PUB_LENGTH          = 32      // 256 bits (ephemeral X25519 public key)
 SALT_LENGTH             = 32      // HKDF salt
-NONCE_LENGTH            = 16      // 128 bits (replay protection nonce)
+ENCRYPT_OVERHEAD_ONESHOT = 120    // replayId(16) + ephPub(32) + salt(32) + nonce(24) + tag(16)
+ENCRYPT_OVERHEAD_SESSION = 88    // replayId(16) + salt(32) + nonce(24) + tag(16)
 FIELD_PRIME             = 2^255 - 19   // Curve25519 field prime
 
 // ===== Security Limits =====
@@ -1869,10 +1910,10 @@ HMAC_INFO_STRING        = "tnzx-ghost-v1"
 HMAC_ALGORITHM          = "SHA-256"
 
 // ===== Encryption Context Strings =====
-SESSION_INFO            = "tnzx-stego-e2e-v2"
-ONESHOT_INFO            = "tnzx-stego-e2e-v2"  // NOTE: same as SESSION_INFO in current impl; see Section 8.4
-SESSION_AAD_PREFIX      = "tnzx-e2e-v2"
-ONESHOT_AAD_PREFIX      = "tnzx-oneshot-v2"    // AAD prefix IS distinct from session
+SESSION_INFO            = "tnzx-e2e-v3"
+ONESHOT_INFO            = "tnzx-e2e-v3"        // same as SESSION_INFO; domain separation via AAD prefix
+SESSION_AAD_PREFIX      = "tnzx-e2e-v3"
+ONESHOT_AAD_PREFIX      = "tnzx-oneshot-v3"    // AAD prefix IS distinct from session
 
 // ===== Timing =====
 BALANCED_DELAY_MIN_MS   = 500
@@ -1887,7 +1928,7 @@ BALANCED_DELAY_MAX_MS   = 3000
 
 ```
 // Step 1: Miner connects and logs in
---> {"id":1,"method":"login","params":{"login":"4...wallet...","pass":"x","agent":"tnzxminer/1.0"}}
+--> {"id":1,"method":"login","params":{"login":"4...wallet...","pass":"x","agent":"vs-miner/1.0"}}
 <-- {"id":1,"result":{"id":"abc123","job":{"blob":"...","job_id":"j1","target":"...","height":3000000,"seed_hash":"..."},"status":"OK"}}
 
 // Step 2: Miner submits a regular mining share (valid PoW)
@@ -1915,7 +1956,7 @@ BALANCED_DELAY_MAX_MS   = 3000
 
 ```
 // Step 1: Mining subscribe
---> {"id":1,"method":"mining.subscribe","params":["tnzxminer/1.0"]}
+--> {"id":1,"method":"mining.subscribe","params":["vs-miner/1.0"]}
 <-- {"id":1,"result":[[["mining.notify","subscription_id"]],"extranonce1_hex",4]}
 //  extranonce2_size = 4 bytes
 

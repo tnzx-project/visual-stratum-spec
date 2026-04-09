@@ -55,7 +55,7 @@ Required for responsible disclosure. Cover:
 Add subsections:
 - Traffic analysis: correlated timing, share rate anomalies
 - Communication graph: pool learns who-talks-to-whom (same as Signal server)
-- Intersection attacks: small anonymity set if few miners use tnzxminer
+- Intersection attacks: small anonymity set if few miners use vs-miner
 - Sequential correlation: frame structure across shares is a second-order
   distinguisher (mitigated by encryption, but header bytes if unencrypted)
 - User-agent fingerprinting: recommend mimicking standard miner UA
@@ -72,18 +72,18 @@ exchange public keys out-of-band (QR code, secure messenger, in-person)."
 - Mention Stratum v2 (Sv2) forward compatibility limitation
 - Nonce hex string byte order: explicitly state big-endian (first 2 hex chars = byte[0])
 - ghostDiffMax communication: state as out-of-band configuration (no in-band mechanism yet)
-- Max encrypted plaintext calculation: 6400 - 76 = 6324 bytes (state explicitly)
+- Max encrypted plaintext calculation: 6400 - 120 = 6280 bytes (state explicitly)
 
 ---
 
 ## Phase B — Performance optimizations (protocol evolution)
 
 ### B1. Compact encryption envelope
-Replace 76-byte envelope (nonce 16 + salt 32 + IV 12 + tag 16) with
-32-byte compact envelope (counter 4 + IV 12 + tag 16) after session
+Replace 120-byte one-shot envelope (replayId 16 + ephPub 32 + salt 32 + nonce 24 + tag 16)
+with a compact session envelope (counter 4 + nonce 24 + tag 16 = 44 bytes) after session
 establishment. Requires counter synchronization protocol.
 
-Impact: encrypted "Hello" drops from 18 to 10 shares (-44%).
+Impact: encrypted "Hello" drops from ~26 to ~11 shares (-58%).
 Breaking: yes, requires capability negotiation.
 
 ### B2. Negotiable L1 fragment size
