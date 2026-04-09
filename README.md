@@ -21,6 +21,7 @@ decoder, and proxy from this document alone.
 ## Related Repositories
 
 - [tnzx-protocol](https://github.com/tnzx-project/tnzx-protocol) — Reference implementation, test vectors, design papers
+- [@tnzx/sdk](https://www.npmjs.com/package/@tnzx/sdk) — Developer SDK (`npm install @tnzx/sdk`)
 - [tnzx-pool-demo](https://github.com/tnzx-project/tnzx-pool-demo) — Proof-of-concept pool and VS3 proxy
 
 ## Conventions

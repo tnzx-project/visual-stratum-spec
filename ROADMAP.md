@@ -45,7 +45,7 @@ State the novel contribution explicitly: (1) mining traffic as cover,
 (2) Mining Gate as PoW-based access control, (3) no separate network endpoint.
 
 ### A5. Ethical / dual-use section (Section 11.4 new) **DONE (draft-01)**
-NLnet expects this. Cover:
+Required for responsible disclosure. Cover:
 - Dual-use acknowledgment
 - Mining Gate as natural rate limiter (impractical for high-volume abuse)
 - E2E encryption prevents content moderation (feature and risk)
@@ -104,5 +104,5 @@ Breaking: requires new field or message format. Consider for v2.
 
 ## Review findings source
 - External implementer review (2026-03-31): interoperability risks, state gaps
-- NLnet/privacy expert review (2026-03-31): threat model, ethics, related work
+- Privacy expert review (2026-03-31): threat model, ethics, related work
 - Protocol efficiency analysis (2026-03-31): overhead calculations, optimizations
