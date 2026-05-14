@@ -92,9 +92,9 @@ Byte offsets are 0-indexed.
 
 ### 1.4 Related Work and Novelty
 
-Visual Stratum relates to three areas of prior work:
+The theoretical foundations of covert channels date back to Lampson's confinement problem [Lampson1973] and Simmons' subliminal channel [Simmons1983]. Cabuk et al. [Cabuk2004] formalized timing-based covert channels in IP networks. Comprehensive surveys [Wendzel2015] and textbook treatments [Mazurczyk2016] catalog the field across protocol layers and detection techniques. Visual Stratum relates to three specific areas of prior work:
 
-**Censorship-resistant transports.** Tor pluggable transports (obfs4 [PT1], meek [PT2]) disguise Tor traffic as other protocols. StegoTorus [StegoTorus] embeds Tor in HTTP responses. DeltaShaper [DeltaShaper] uses video steganography. These systems synthesize cover traffic that mimics a legitimate protocol. Visual Stratum differs fundamentally: it does not mimic mining traffic -- it IS mining traffic. The shares carrying data pass full proof-of-work validation and earn real cryptocurrency. There is no behavioral difference to detect because the cover activity has independent economic value.
+**Censorship-resistant transports.** Tor pluggable transports (obfs4 [PT1], meek [PT2]) disguise Tor traffic as other protocols. StegoTorus [StegoTorus] embeds Tor in HTTP responses. DeltaShaper [DeltaShaper] and CovertCast [CovertCast2016] use video streaming as cover. These systems synthesize cover traffic that mimics a legitimate protocol. Visual Stratum differs fundamentally: it does not mimic mining traffic -- it IS mining traffic. The shares carrying data pass full proof-of-work validation and earn real cryptocurrency. There is no behavioral difference to detect because the cover activity has independent economic value.
 
 **Blockchain covert channels.** Partala (2018) [Partala2018] demonstrated covert payloads in Bitcoin transaction fields. Frkat, Annessi, and Zseby (2020) [Frkat2020] quantified embedding capacity across blockchain fields. Cao et al. (2023) [Cao2023] surveyed blockchain information hiding techniques and identified mining-protocol-level embedding as under-explored. Visual Stratum operates at the mining protocol layer (Stratum), not the transaction layer. This means: no on-chain fees, no permanent records, no confirmation delays, and bandwidth limited by share rate (seconds) rather than block rate (minutes).
 
@@ -1548,7 +1548,7 @@ Visual Stratum considers four adversary classes:
 
 Traffic analysis is the most likely real-world attack against Visual Stratum and deserves specific attention.
 
-**Correlated timing.** If Alice sends a message and Bob's miner submits a ghost share shortly after, an observer monitoring both connections can infer communication. Mitigation: the BALANCED mode's timing decorrelation (Section 10.3) introduces random delays. On L1 (Stratum only), no timing mitigation is currently specified.
+**Correlated timing.** If Alice sends a message and Bob's miner submits a ghost share shortly after, an observer monitoring both connections can infer communication. Mitigation: the BALANCED mode's timing decorrelation (Section 10.3) introduces random delays. On L1 (Stratum only), no timing mitigation is currently specified. Deep-learning--based flow correlation attacks such as DeepCorr [DeepCorr2018] significantly reduce the data required for successful correlation, raising the bar for any timing-mitigation strategy.
 
 **Share rate anomaly.** Ghost shares increase a miner's total submission rate. A miner submitting significantly more shares than their hashrate predicts is a statistical signal. Mitigation: ghost shares at difficulty 1 represent negligible computational cost but are countable. Implementations SHOULD limit ghost share rate to a fraction of real share rate.
 
@@ -1825,6 +1825,15 @@ The reference implementation uses HKDF-SHA256 (RFC 5869) with the info string `"
 - [DeltaShaper] Barradas, D., Santos, N., and Rodrigues, L., "DeltaShaper: Enabling Unobservable Censorship-Resistant TCP Tunneling over Videoconferencing Streams", PoPETs, 2017.
 - [Collet2011] Collet, Y., "LZ4 -- Extremely Fast Compression", 2011.
 - [HOP02] Hopper, N., Langford, J., von Ahn, L., "Provably Secure Steganography", CRYPTO 2002. DOI: 10.1007/3-540-45708-9_6.
+- [Lampson1973] Lampson, B.W., "A Note on the Confinement Problem", Communications of the ACM, 16(10):613-615, 1973.
+- [Simmons1983] Simmons, G.J., "The Prisoners' Problem and the Subliminal Channel", Advances in Cryptology: Proceedings of CRYPTO '83, pp. 51-67, 1984.
+- [Cabuk2004] Cabuk, S., Brodley, C.E., and Shields, C., "IP Covert Timing Channels: Design and Detection", ACM CCS, 2004.
+- [Wendzel2015] Wendzel, S., Zander, S., Fechner, B., and Herdin, C., "Pattern-Based Survey and Categorization of Network Covert Channel Techniques", ACM Computing Surveys, 47(3):50:1-50:26, 2015.
+- [Mazurczyk2016] Mazurczyk, W., Wendzel, S., Zander, S., Houmansadr, A., and Szczypiorski, K., "Information Hiding in Communication Networks: Fundamentals, Mechanisms, Applications, and Countermeasures", Wiley-IEEE Press, 2016.
+- [CovertCast2016] McPherson, R., Houmansadr, A., and Shmatikov, V., "CovertCast: Using Live Streaming to Evade Internet Censorship", PoPETs, 2016(3):318-335, 2016.
+- [DeepCorr2018] Nasr, M., Bahramali, A., and Houmansadr, A., "DeepCorr: Strong Flow Correlation Attacks on Tor Using Deep Learning", ACM CCS, 2018.
+- [PoET2017] Chen, L., Xu, L., Shah, N., Gao, Z., Lu, Y., and Shi, W., "On Security Analysis of Proof of Elapsed Time (PoET)", International Symposium on Stabilization, Safety, and Security of Distributed Systems (SSS), pp. 282-297, 2017.
+- [Fisch2019] Fisch, B., "Tight Proofs of Space and Replication", EUROCRYPT, pp. 324-360, 2019.
 - [PT1] "obfs4 (The obfourscator)", Tor Project Pluggable Transports. https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/obfs4
 - [PT2] Fifield, D., Lan, C., Hynes, R., Wegmann, P., and Paxson, V., "Blocking-resistant communication through domain fronting", PoPETs, 2015. (meek transport)
 - [RFC9420] Barnes, R., Beurdouche, B., Robert, R., Millican, J., Omara, E., and Cohn-Gordon, K., "The Messaging Layer Security (MLS) Protocol", RFC 9420, July 2023.
