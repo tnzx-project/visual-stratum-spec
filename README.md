@@ -1,8 +1,8 @@
 # Visual Stratum Protocol Specification
 
-Formal specification of the **Visual Stratum** protocol suite — steganographic communication over cryptocurrency mining traffic.
+Formal specification of the **Visual Stratum** protocol suite — encapsulated communication over cryptocurrency mining traffic.
 
-> Hide encrypted messages inside real mining shares. The shares pass proof-of-work validation. The miner gets paid. An observer sees legitimate mining. Nothing more.
+> Embed encrypted messages inside real mining shares. The shares pass proof-of-work validation. The miner gets paid. An observer sees legitimate mining. Nothing more.
 
 ## What this specification defines
 
@@ -49,7 +49,7 @@ Miner A                    VS3 Proxy / Pool                    Miner B
 | VS2 | 3 | Nonce + extranonce2 (real share, valid PoW) | Maximum | Bitcoin-style |
 | VS3 | 5 | Ghost share (no PoW required) | High | Monero |
 
-VS1 and VS2 are truly steganographic — shares pass full proof-of-work validation. VS3 trades some stealth for bandwidth using ghost shares with a sentinel marker.
+VS1 and VS2 are fully cover-bound — payload is embedded in real shares that pass full proof-of-work validation. VS3 trades some stealth for bandwidth using ghost shares with a sentinel marker.
 
 ## Related Repositories
 
