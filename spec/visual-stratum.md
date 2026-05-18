@@ -17,7 +17,7 @@ This specification has not been submitted to or reviewed by the IETF or any stan
 
 ## Abstract
 
-Visual Stratum is a family of steganographic communication protocols that embed encrypted messages within standard cryptocurrency mining traffic. By exploiting the inherent randomness of proof-of-work share submissions, Visual Stratum encodes data in Stratum protocol fields that are entropy-equivalent to legitimate mining data. The protocol introduces Mining Gate, an access control mechanism that binds communication bandwidth to active proof-of-work, simultaneously providing spam prevention, economic sustainability, and censorship resistance.
+Visual Stratum is a family of encapsulated communication protocols that embed encrypted messages within standard cryptocurrency mining traffic. By leveraging the inherent randomness of proof-of-work share submissions, Visual Stratum encodes data in Stratum protocol fields that are statistically indistinguishable from legitimate mining data. The protocol introduces Mining Gate, an access control mechanism that binds communication bandwidth to active proof-of-work, simultaneously providing spam prevention, economic sustainability, and communication resilience under restricted network conditions.
 
 This specification defines the wire format, encoding profiles, cryptographic design, frame fragmentation, Mining Gate state machine, ghost share detection, proxy architecture, and multi-channel transport of the Visual Stratum protocol across three generations (VS1, VS2, VS3). An implementer SHOULD be able to construct a conforming encoder, decoder, and proxy using only this document.
 
@@ -48,13 +48,13 @@ Appendix C — Changelog
 
 ### 1.1 Purpose
 
-This document specifies the Visual Stratum protocol suite: a set of steganographic communication protocols designed to create covert, encrypted communication channels within standard cryptocurrency mining traffic. The protocols operate within the Stratum mining protocol, requiring no additional network endpoints, no identifiable protocol signatures beyond those inherent to the Stratum connection, and no separate funding model.
+This document specifies the Visual Stratum protocol suite: a set of encapsulated communication protocols designed to provide resilient encrypted communication channels within standard cryptocurrency mining traffic. The protocols operate within the Stratum mining protocol, requiring no additional network endpoints, no identifiable protocol signatures beyond those inherent to the Stratum connection, and no separate funding model.
 
 ### 1.2 Scope
 
 This specification covers:
 
-- Three protocol generations: VS1 (image steganography), VS2 (Stratum embedding + Mining Gate), and VS3 (multi-channel adaptive transport).
+- Three protocol generations: VS1 (image-based data encoding), VS2 (Stratum embedding + Mining Gate), and VS3 (multi-channel adaptive transport).
 - Six encoding profiles for embedding data in Stratum share fields.
 - The VS3 frame format for message fragmentation and reassembly.
 - The Mining Gate proof-of-work access control mechanism.
@@ -71,7 +71,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 | Term | Definition |
 |------|-----------|
-| **Cover traffic** | Legitimate network traffic within which covert data is hidden |
+| **Cover traffic** | Legitimate network traffic that carries encapsulated data |
 | **Ghost share** | A Stratum share submitted below the pool's difficulty threshold, used as a pure data carrier; no valid proof-of-work is required |
 | **Mining Gate** | The access control mechanism that binds VS channel access to active proof-of-work |
 | **Sentinel** | A fixed or derived byte value used to identify ghost shares at the pool |
@@ -1204,7 +1204,7 @@ key = HKDF(
 )
 ```
 
-A fresh random salt per message ensures unique derived keys even when the same shared secret is reused across messages. This provides forward secrecy at the message level within an established session.
+A fresh random salt per message ensures unique derived keys, even when the same shared secret is reused across messages. This provides forward secrecy at the message level within an established session.
 
 ### 8.4 Perfect Forward Secrecy
 
