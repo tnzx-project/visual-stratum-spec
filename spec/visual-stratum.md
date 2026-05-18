@@ -1387,7 +1387,7 @@ VS3 extends the transport layer to support four parallel communication channels.
 | L1 | Stratum share embedding | 5-256 B/share | Upload (miner -> pool) | Normal mining | 5/5 |
 | L2 | HTTP/2 streams | ~100 KB/s | Bidirectional | Pool API calls | 4/5 |
 | L3 | WebSocket | ~50 KB/s | Bidirectional | Real-time stats | 4/5 |
-| L4 | PNG LSB steganography | ~45 KB/s | Download (pool -> miner) | Dashboard charts | 5/5 |
+| L4 | PNG LSB encoding | ~45 KB/s | Download (pool -> miner) | Dashboard charts | 5/5 |
 
 Combined design target bandwidth: ~195 KB/s (all channels active).
 
